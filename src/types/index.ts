@@ -3,12 +3,28 @@ export type EisenhowerQuadrant = 'do_first' | 'schedule' | 'delegate' | 'elimina
 export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'overdue' | 'paused';
 export type RecurringType = 'none' | 'daily' | 'weekdays' | 'weekly' | 'custom';
 export type TabType = 'pending' | 'done' | 'overdue';
-export type PageType = 'tasks' | 'stats' | 'ai' | 'settings' | 'achievements';
+export type PageType = 'tasks' | 'stats' | 'ai' | 'settings' | 'achievements' | 'templates' | 'finance';
 
 export interface RecurringConfig {
   type: RecurringType;
-  customDays?: number[]; // 0=Sun, 1=Mon, ... 6=Sat
+  customDays?: number[];
   label?: string;
+}
+
+// Media content blocks for rich task content
+export type MediaBlockType = 'text' | 'image' | 'youtube';
+export interface MediaBlock {
+  id: string;
+  type: MediaBlockType;
+  content: string; // text content, image URL, or youtube embed URL
+  caption?: string;
+}
+
+// Financial tracking
+export interface TaskFinance {
+  type: 'income' | 'expense';
+  amount: number;
+  note?: string;
 }
 
 export interface Task {
@@ -18,23 +34,45 @@ export interface Task {
   quadrant: EisenhowerQuadrant;
   createdAt: number;
   completedAt?: number;
-  deadline?: number; // timestamp
-  deadlineDate?: string; // YYYY-MM-DD
-  deadlineTime?: string; // HH:mm
-  duration?: number; // seconds spent on timer
+  deadline?: number;
+  deadlineDate?: string;
+  deadlineTime?: string;
+  duration?: number;
   totalPausedTime?: number;
   order: number;
   recurring: RecurringConfig;
   recurringLabel?: string;
   timerSessions?: { start: number; end: number; elapsed: number }[];
   notes?: string;
+  // Subtasks / hierarchy
+  parentId?: string;
+  children?: string[]; // child task IDs
+  // Rich media content
+  media?: MediaBlock[];
+  // Financial
+  finance?: TaskFinance;
+  // Template source
+  templateId?: string;
+}
+
+export interface TaskTemplate {
+  id: string;
+  title: string;
+  quadrant: EisenhowerQuadrant;
+  recurring: RecurringConfig;
+  notes?: string;
+  media?: MediaBlock[];
+  subtasks?: { title: string; quadrant: EisenhowerQuadrant }[];
+  finance?: TaskFinance;
+  createdAt: number;
+  updatedAt?: number;
 }
 
 export interface TimerState {
   taskId: string | null;
   isRunning: boolean;
   isPaused: boolean;
-  elapsed: number; // seconds
+  elapsed: number;
   startTime: number | null;
   pausedAt: number | null;
   totalPausedDuration: number;
@@ -67,17 +105,19 @@ export interface Achievement {
   condition: AchievementCondition;
   unlockedAt?: number;
   xpReward: number;
+  isCustom?: boolean;
 }
 
 export type AchievementCondition =
   | { type: 'tasks_completed'; count: number }
   | { type: 'streak_days'; count: number }
   | { type: 'timer_total'; seconds: number }
-  | { type: 'early_bird'; count: number } // completed before 9am
+  | { type: 'early_bird'; count: number }
   | { type: 'quadrant_master'; quadrant: EisenhowerQuadrant; count: number }
-  | { type: 'perfect_day'; count: number } // all tasks done in a day
-  | { type: 'speed_demon'; seconds: number } // task completed under X seconds
-  | { type: 'consistency'; days: number }; // used app X days
+  | { type: 'perfect_day'; count: number }
+  | { type: 'speed_demon'; seconds: number }
+  | { type: 'consistency'; days: number }
+  | { type: 'custom'; description: string };
 
 export interface Reward {
   id: string;
@@ -93,13 +133,13 @@ export interface GamificationState {
   xp: number;
   level: number;
   streak: number;
-  lastActiveDate: string; // YYYY-MM-DD
+  lastActiveDate: string;
   totalTasksCompleted: number;
   totalTimerSeconds: number;
   earlyBirdCount: number;
   perfectDays: number;
   activeDays: number;
-  dailyCompletionDates: string[]; // dates where all tasks completed
+  dailyCompletionDates: string[];
   achievements: Achievement[];
   rewards: Reward[];
 }
@@ -107,7 +147,7 @@ export interface GamificationState {
 // Notification
 export interface NotificationSettings {
   enabled: boolean;
-  beforeDeadline: number; // minutes before deadline
+  beforeDeadline: number;
   dailyReminder: boolean;
-  dailyReminderTime: string; // HH:mm
+  dailyReminderTime: string;
 }

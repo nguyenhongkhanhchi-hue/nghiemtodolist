@@ -3,6 +3,7 @@ import type {
   Task, ChatMessage, TimerState, TabType, PageType,
   EisenhowerQuadrant, RecurringConfig, UserProfile,
   GamificationState, NotificationSettings, Reward,
+  TaskTemplate, MediaBlock, TaskFinance, Achievement,
 } from '@/types';
 import { calculateLevel, checkAchievement, getDefaultGamificationState } from '@/lib/gamification';
 import { getNowInTimezone } from '@/lib/notifications';
@@ -53,8 +54,8 @@ interface TaskStore {
   _userId: string | undefined;
   initForUser: (userId?: string) => void;
   setActiveTab: (tab: TabType) => void;
-  addTask: (title: string, quadrant?: EisenhowerQuadrant, deadline?: number, recurring?: RecurringConfig, deadlineDate?: string, deadlineTime?: string) => void;
-  updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'quadrant' | 'deadline' | 'recurring' | 'notes' | 'deadlineDate' | 'deadlineTime'>>) => void;
+  addTask: (title: string, quadrant?: EisenhowerQuadrant, deadline?: number, recurring?: RecurringConfig, deadlineDate?: string, deadlineTime?: string, parentId?: string, media?: MediaBlock[], finance?: TaskFinance, templateId?: string) => string;
+  updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'quadrant' | 'deadline' | 'recurring' | 'notes' | 'deadlineDate' | 'deadlineTime' | 'media' | 'finance' | 'parentId'>>) => void;
   removeTask: (id: string) => void;
   completeTask: (id: string, duration?: number) => void;
   restoreTask: (id: string) => void;
@@ -67,6 +68,8 @@ interface TaskStore {
   clearAllData: () => void;
   markOverdue: () => void;
   startTask: (id: string) => void;
+  getSubtasks: (parentId: string) => Task[];
+  addSubtask: (parentId: string, title: string, quadrant?: EisenhowerQuadrant) => string;
 }
 
 const defaultTimer: TimerState = { taskId: null, isRunning: false, isPaused: false, elapsed: 0, startTime: null, pausedAt: null, totalPausedDuration: 0 };
@@ -85,11 +88,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
-  addTask: (title, quadrant = 'do_first', deadline, recurring = { type: 'none' }, deadlineDate, deadlineTime) => {
+  addTask: (title, quadrant = 'do_first', deadline, recurring = { type: 'none' }, deadlineDate, deadlineTime, parentId, media, finance, templateId) => {
     const tasks = get().tasks;
     const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
+    const id = generateId();
     const newTask: Task = {
-      id: generateId(),
+      id,
       title,
       status: 'pending',
       quadrant,
@@ -98,13 +102,30 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       deadlineDate,
       deadlineTime,
       order: pendingTasks.length,
-      recurring,
-      recurringLabel: recurring.type !== 'none' ? title : undefined,
+      recurring: recurring || { type: 'none' },
+      recurringLabel: recurring && recurring.type !== 'none' ? title : undefined,
+      parentId,
+      media: media || [],
+      finance,
+      templateId,
     };
-    const updated = [...tasks, newTask];
+
+    let updated = [...tasks, newTask];
+
+    // If has parent, add to parent's children array
+    if (parentId) {
+      updated = updated.map(t => {
+        if (t.id === parentId) {
+          return { ...t, children: [...(t.children || []), id] };
+        }
+        return t;
+      });
+    }
+
     const key = getUserKey('taskflow_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
+    return id;
   },
 
   updateTask: (id, updates) => {
@@ -117,7 +138,30 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   removeTask: (id) => {
-    const updated = get().tasks.filter(t => t.id !== id);
+    const tasks = get().tasks;
+    const taskToRemove = tasks.find(t => t.id === id);
+    // Collect all descendant IDs recursively
+    const idsToRemove = new Set<string>();
+    const collectIds = (taskId: string) => {
+      idsToRemove.add(taskId);
+      const task = tasks.find(t => t.id === taskId);
+      if (task?.children) {
+        task.children.forEach(childId => collectIds(childId));
+      }
+    };
+    collectIds(id);
+
+    let updated = tasks.filter(t => !idsToRemove.has(t.id));
+    // Remove from parent's children
+    if (taskToRemove?.parentId) {
+      updated = updated.map(t => {
+        if (t.id === taskToRemove.parentId) {
+          return { ...t, children: (t.children || []).filter(cid => cid !== id) };
+        }
+        return t;
+      });
+    }
+
     const key = getUserKey('taskflow_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
@@ -145,7 +189,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({ tasks: updated });
     }
 
-    // Update gamification
     const settingsStore = useSettingsStore.getState();
     const task = get().tasks.find(t => t.id === id);
     if (task) {
@@ -165,11 +208,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   reorderTasks: (fromIndex, toIndex) => {
     const tasks = [...get().tasks];
-    const pending = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').sort((a, b) => a.order - b.order);
+    const pending = tasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && !t.parentId).sort((a, b) => a.order - b.order);
+    if (fromIndex < 0 || fromIndex >= pending.length || toIndex < 0 || toIndex >= pending.length) return;
     const [moved] = pending.splice(fromIndex, 1);
     pending.splice(toIndex, 0, moved);
     pending.forEach((t, i) => { t.order = i; });
-    const rest = tasks.filter(t => t.status !== 'pending' && t.status !== 'in_progress');
+    const rest = tasks.filter(t => (t.status !== 'pending' && t.status !== 'in_progress') || t.parentId);
     const updated = [...pending, ...rest];
     const key = getUserKey('taskflow_tasks', get()._userId);
     saveToStorage(key, updated);
@@ -208,9 +252,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const timer = get().timer;
     if (timer.isPaused && timer.pausedAt) {
       const pausedDuration = Math.floor((Date.now() - timer.pausedAt) / 1000);
-      set({
-        timer: { ...timer, isPaused: false, isRunning: true, pausedAt: null, totalPausedDuration: timer.totalPausedDuration + pausedDuration },
-      });
+      set({ timer: { ...timer, isPaused: false, isRunning: true, pausedAt: null, totalPausedDuration: timer.totalPausedDuration + pausedDuration } });
     }
   },
 
@@ -242,6 +284,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     localStorage.removeItem(getUserKey('taskflow_tasks', userId));
     localStorage.removeItem(getUserKey('taskflow_chat', userId));
     localStorage.removeItem(getUserKey('taskflow_gamification', userId));
+    localStorage.removeItem(getUserKey('taskflow_templates', userId));
     localStorage.removeItem('taskflow_settings');
     set({ tasks: [], timer: { ...defaultTimer } });
   },
@@ -261,6 +304,86 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const key = getUserKey('taskflow_tasks', get()._userId);
       saveToStorage(key, updated);
       set({ tasks: updated });
+    }
+  },
+
+  getSubtasks: (parentId) => {
+    return get().tasks.filter(t => t.parentId === parentId).sort((a, b) => a.order - b.order);
+  },
+
+  addSubtask: (parentId, title, quadrant = 'do_first') => {
+    return get().addTask(title, quadrant, undefined, { type: 'none' }, undefined, undefined, parentId);
+  },
+}));
+
+// ──────────── TEMPLATE STORE ────────────
+interface TemplateStore {
+  templates: TaskTemplate[];
+  _userId: string | undefined;
+  initForUser: (userId?: string) => void;
+  addTemplate: (template: Omit<TaskTemplate, 'id' | 'createdAt'>) => string;
+  updateTemplate: (id: string, updates: Partial<TaskTemplate>) => void;
+  removeTemplate: (id: string) => void;
+  createTaskFromTemplate: (templateId: string) => void;
+}
+
+export const useTemplateStore = create<TemplateStore>((set, get) => ({
+  templates: [],
+  _userId: undefined,
+
+  initForUser: (userId) => {
+    const key = getUserKey('taskflow_templates', userId);
+    const templates = loadFromStorage<TaskTemplate[]>(key, []);
+    set({ templates, _userId: userId });
+  },
+
+  addTemplate: (template) => {
+    const id = generateId();
+    const newTemplate: TaskTemplate = { ...template, id, createdAt: Date.now() };
+    const updated = [...get().templates, newTemplate];
+    const key = getUserKey('taskflow_templates', get()._userId);
+    saveToStorage(key, updated);
+    set({ templates: updated });
+    return id;
+  },
+
+  updateTemplate: (id, updates) => {
+    const updated = get().templates.map(t =>
+      t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t
+    );
+    const key = getUserKey('taskflow_templates', get()._userId);
+    saveToStorage(key, updated);
+    set({ templates: updated });
+  },
+
+  removeTemplate: (id) => {
+    const updated = get().templates.filter(t => t.id !== id);
+    const key = getUserKey('taskflow_templates', get()._userId);
+    saveToStorage(key, updated);
+    set({ templates: updated });
+  },
+
+  createTaskFromTemplate: (templateId) => {
+    const template = get().templates.find(t => t.id === templateId);
+    if (!template) return;
+    const taskStore = useTaskStore.getState();
+    const parentId = taskStore.addTask(
+      template.title,
+      template.quadrant,
+      undefined,
+      template.recurring,
+      undefined,
+      undefined,
+      undefined,
+      template.media,
+      template.finance,
+      templateId,
+    );
+    // Create subtasks
+    if (template.subtasks) {
+      template.subtasks.forEach(sub => {
+        taskStore.addSubtask(parentId, sub.title, sub.quadrant);
+      });
     }
   },
 }));
@@ -313,6 +436,11 @@ interface GamificationStore {
   claimReward: (rewardId: string) => void;
   addCustomReward: (reward: Omit<Reward, 'id' | 'claimed'>) => void;
   removeReward: (rewardId: string) => void;
+  updateReward: (rewardId: string, updates: Partial<Omit<Reward, 'id'>>) => void;
+  addCustomAchievement: (achievement: Omit<Achievement, 'id' | 'unlockedAt'>) => void;
+  removeAchievement: (achievementId: string) => void;
+  updateAchievement: (achievementId: string, updates: Partial<Omit<Achievement, 'id'>>) => void;
+  unlockAchievement: (achievementId: string) => void;
   _save: () => void;
 }
 
@@ -324,7 +452,6 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     const key = getUserKey('taskflow_gamification', userId);
     const saved = loadFromStorage<GamificationState | null>(key, null);
     if (saved) {
-      // Merge saved achievements with defaults (in case new ones were added)
       const defaultState = getDefaultGamificationState();
       const existingIds = new Set(saved.achievements.map(a => a.id));
       const newAchievements = defaultState.achievements.filter(a => !existingIds.has(a.id));
@@ -346,7 +473,6 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const hour = now.getHours();
 
-    // Base XP
     let xpGain = 10;
     if (quadrant === 'do_first') xpGain = 20;
     else if (quadrant === 'schedule') xpGain = 15;
@@ -359,7 +485,6 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
 
     if (hour < 9) s.earlyBirdCount += 1;
 
-    // Streak logic
     if (s.lastActiveDate !== todayStr) {
       const yesterday = new Date(now);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -373,10 +498,8 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
       s.activeDays += 1;
     }
 
-    // Level
     s.level = calculateLevel(s.xp);
 
-    // Quadrant counts for achievement checking
     const tasks = useTaskStore.getState().tasks;
     const quadrantCounts = {
       do_first: tasks.filter(t => t.status === 'done' && t.quadrant === 'do_first').length,
@@ -385,7 +508,6 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
       eliminate: tasks.filter(t => t.status === 'done' && t.quadrant === 'eliminate').length,
     };
 
-    // Check all achievements
     let achievementXp = 0;
     const newUnlocked: string[] = [];
     s.achievements = s.achievements.map(ach => {
@@ -399,16 +521,12 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
 
     s.xp += achievementXp;
     s.level = calculateLevel(s.xp);
-
     set({ state: s });
     get()._save();
 
-    // Notify achievements
     if (newUnlocked.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
       newUnlocked.forEach(title => {
-        try {
-          new Notification('🏆 Thành tích mới!', { body: title, icon: '/og-image.jpg' });
-        } catch { /* silent */ }
+        try { new Notification('Thành tích mới!', { body: title, icon: '/og-image.jpg' }); } catch { /* silent */ }
       });
     }
   },
@@ -417,24 +535,18 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     const s = { ...get().state };
     const reward = s.rewards.find(r => r.id === rewardId);
     if (!reward || reward.claimed || s.xp < reward.xpCost) return;
-
     s.xp -= reward.xpCost;
     s.level = calculateLevel(s.xp);
     s.rewards = s.rewards.map(r =>
       r.id === rewardId ? { ...r, claimed: true, claimedAt: Date.now() } : r
     );
-
     set({ state: s });
     get()._save();
   },
 
   addCustomReward: (reward) => {
     const s = { ...get().state };
-    s.rewards = [...s.rewards, {
-      ...reward,
-      id: `custom_${Date.now().toString(36)}`,
-      claimed: false,
-    }];
+    s.rewards = [...s.rewards, { ...reward, id: `custom_${Date.now().toString(36)}`, claimed: false }];
     set({ state: s });
     get()._save();
   },
@@ -442,6 +554,48 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
   removeReward: (rewardId) => {
     const s = { ...get().state };
     s.rewards = s.rewards.filter(r => r.id !== rewardId);
+    set({ state: s });
+    get()._save();
+  },
+
+  updateReward: (rewardId, updates) => {
+    const s = { ...get().state };
+    s.rewards = s.rewards.map(r => r.id === rewardId ? { ...r, ...updates } : r);
+    set({ state: s });
+    get()._save();
+  },
+
+  addCustomAchievement: (achievement) => {
+    const s = { ...get().state };
+    const id = `custom_ach_${Date.now().toString(36)}`;
+    s.achievements = [...s.achievements, { ...achievement, id, isCustom: true }];
+    set({ state: s });
+    get()._save();
+  },
+
+  removeAchievement: (achievementId) => {
+    const s = { ...get().state };
+    s.achievements = s.achievements.filter(a => a.id !== achievementId);
+    set({ state: s });
+    get()._save();
+  },
+
+  updateAchievement: (achievementId, updates) => {
+    const s = { ...get().state };
+    s.achievements = s.achievements.map(a => a.id === achievementId ? { ...a, ...updates } : a);
+    set({ state: s });
+    get()._save();
+  },
+
+  unlockAchievement: (achievementId) => {
+    const s = { ...get().state };
+    const ach = s.achievements.find(a => a.id === achievementId);
+    if (!ach || ach.unlockedAt) return;
+    s.achievements = s.achievements.map(a =>
+      a.id === achievementId ? { ...a, unlockedAt: Date.now() } : a
+    );
+    s.xp += ach.xpReward;
+    s.level = calculateLevel(s.xp);
     set({ state: s });
     get()._save();
   },
@@ -483,24 +637,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
     document.documentElement.style.setProperty('--font-scale', String(scale));
     set({ fontScale: scale });
   },
-
-  setTickSound: (enabled) => {
-    saveToStorage('taskflow_tick', enabled);
-    set({ tickSoundEnabled: enabled });
-  },
-
-  setVoiceEnabled: (enabled) => {
-    saveToStorage('taskflow_voice', enabled);
-    set({ voiceEnabled: enabled });
-  },
-
+  setTickSound: (enabled) => { saveToStorage('taskflow_tick', enabled); set({ tickSoundEnabled: enabled }); },
+  setVoiceEnabled: (enabled) => { saveToStorage('taskflow_voice', enabled); set({ voiceEnabled: enabled }); },
   setCurrentPage: (page) => set({ currentPage: page }),
-
-  setTimezone: (tz) => {
-    saveToStorage('taskflow_timezone', tz);
-    set({ timezone: tz });
-  },
-
+  setTimezone: (tz) => { saveToStorage('taskflow_timezone', tz); set({ timezone: tz }); },
   setNotificationSettings: (partial) => {
     set((prev) => {
       const updated = { ...prev.notificationSettings, ...partial };

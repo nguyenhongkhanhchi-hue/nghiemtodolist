@@ -2,14 +2,22 @@ import { supabase } from '@/lib/supabase';
 import type { Task } from '@/types';
 
 interface TaskContext {
-  pending: Pick<Task, 'id' | 'title' | 'quadrant' | 'deadline' | 'recurring'>[];
-  done: Pick<Task, 'id' | 'title' | 'duration'>[];
-  overdue: Pick<Task, 'id' | 'title'>[];
-  inProgress: Pick<Task, 'id' | 'title'>[];
+  pending: Partial<Task>[];
+  done: Partial<Task>[];
+  overdue: Partial<Task>[];
+  inProgress: Partial<Task>[];
   timerRunning: boolean;
   timerPaused: boolean;
   timerTask?: string;
   timerElapsed?: number;
+  templates?: { id: string; title: string }[];
+  gamification?: {
+    xp: number;
+    level: number;
+    streak: number;
+    rewards: { id: string; title: string; xpCost: number; claimed: boolean }[];
+    achievements: { id: string; title: string; unlockedAt?: number; isCustom?: boolean }[];
+  };
 }
 
 interface ChatMessage {
@@ -18,32 +26,33 @@ interface ChatMessage {
 }
 
 export interface AIAction {
-  type: 'ADD_TASK' | 'COMPLETE_TASK' | 'DELETE_TASK' | 'RESTORE_TASK' | 'START_TIMER' | 'NAVIGATE';
+  type: string;
   title?: string;
   search?: string;
   page?: string;
   recurring?: boolean;
   quadrant?: string;
+  subtasks?: string[];
+  notes?: string;
+  description?: string;
+  icon?: string;
+  xpCost?: number;
+  xpReward?: number;
 }
 
 export function parseAIResponse(content: string): { text: string; actions: AIAction[] } {
   const actions: AIAction[] = [];
   let text = content;
-
   const actionRegex = /:::ACTION\s*\n?([\s\S]*?)\n?:::END/g;
   let match;
-
   while ((match = actionRegex.exec(content)) !== null) {
     try {
-      const action = JSON.parse(match[1].trim());
-      actions.push(action);
+      actions.push(JSON.parse(match[1].trim()));
     } catch (e) {
       console.error('Failed to parse AI action:', match[1], e);
     }
   }
-
   text = text.replace(/:::ACTION\s*\n?[\s\S]*?\n?:::END/g, '').trim();
-
   return { text, actions };
 }
 
@@ -67,7 +76,6 @@ export async function streamAIChat(
     }
 
     const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
-
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -82,10 +90,7 @@ export async function streamAIChat(
     }
 
     const reader = response.body?.getReader();
-    if (!reader) {
-      onError('Không thể đọc phản hồi từ AI');
-      return;
-    }
+    if (!reader) { onError('Không thể đọc phản hồi từ AI'); return; }
 
     const decoder = new TextDecoder();
     let buffer = '';
@@ -93,31 +98,21 @@ export async function streamAIChat(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
-
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed || !trimmed.startsWith('data: ')) continue;
         const data = trimmed.slice(6);
-        if (data === '[DONE]') {
-          onDone();
-          return;
-        }
+        if (data === '[DONE]') { onDone(); return; }
         try {
           const parsed = JSON.parse(data);
           const content = parsed.choices?.[0]?.delta?.content;
-          if (content) {
-            onChunk(content);
-          }
-        } catch {
-          // Skip malformed SSE events
-        }
+          if (content) onChunk(content);
+        } catch { /* skip */ }
       }
     }
-
     onDone();
   } catch (err) {
     console.error('AI streaming error:', err);

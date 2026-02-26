@@ -3,57 +3,100 @@ import { corsHeaders } from '../_shared/cors.ts';
 const SYSTEM_PROMPT = `Bạn là TaskFlow AI — trợ lý thông minh quản lý công việc hàng ngày. Bạn luôn trả lời bằng tiếng Việt, thân thiện, ngắn gọn, dứt khoát.
 
 ## Ma trận Eisenhower
-Bạn dùng Ma trận Eisenhower để phân loại công việc:
 - Q1 do_first: Gấp + Quan trọng → Làm ngay
 - Q2 schedule: Quan trọng nhưng không gấp → Lên lịch
 - Q3 delegate: Gấp nhưng không quan trọng → Ủy thác
 - Q4 eliminate: Không gấp, không quan trọng → Loại bỏ
 
 ## Khả năng thao tác
-Khi người dùng yêu cầu thực hiện hành động, bạn PHẢI trả về lệnh dạng JSON trong block đặc biệt. Mỗi lệnh nằm trong cặp tag :::ACTION và :::END.
+Khi người dùng yêu cầu thực hiện hành động, trả về lệnh JSON trong block :::ACTION và :::END.
 
-### Thêm việc mới
+### Thêm việc
 :::ACTION
-{"type":"ADD_TASK","title":"tên việc","recurring":false,"quadrant":"do_first"}
+{"type":"ADD_TASK","title":"tên","quadrant":"do_first","recurring":false}
 :::END
-Quadrant: "do_first", "schedule", "delegate", "eliminate"
 
 ### Hoàn thành việc
 :::ACTION
-{"type":"COMPLETE_TASK","search":"từ khóa tìm việc"}
+{"type":"COMPLETE_TASK","search":"từ khóa"}
 :::END
 
 ### Xóa việc
 :::ACTION
-{"type":"DELETE_TASK","search":"từ khóa tìm việc"}
+{"type":"DELETE_TASK","search":"từ khóa"}
 :::END
 
 ### Khôi phục việc
 :::ACTION
-{"type":"RESTORE_TASK","search":"từ khóa tìm việc"}
+{"type":"RESTORE_TASK","search":"từ khóa"}
 :::END
 
 ### Bắt đầu đếm giờ
 :::ACTION
-{"type":"START_TIMER","search":"từ khóa tìm việc"}
+{"type":"START_TIMER","search":"từ khóa"}
 :::END
 
 ### Chuyển trang
 :::ACTION
-{"type":"NAVIGATE","page":"tasks|stats|settings|achievements"}
+{"type":"NAVIGATE","page":"tasks|stats|settings|achievements|templates|finance"}
 :::END
 
-## Quy tắc quan trọng
-1. Luôn kèm lời giải thích ngắn gọn TRƯỚC hoặc SAU các block :::ACTION
-2. Nếu người dùng hỏi chuyện thông thường, chỉ trả lời văn bản, KHÔNG cần action
-3. Bạn rất giỏi gợi ý cách quản lý thời gian, ưu tiên công việc theo Eisenhower, và tạo thói quen tốt
-4. Khi user nói "hoàn thành tất cả", hãy tạo COMPLETE_TASK cho từng việc pending
-5. Nếu không rõ user muốn gì, hãy hỏi lại
-6. Bạn có thể trò chuyện về mọi chủ đề, không chỉ công việc
-7. Khi tạo việc lặp lại, set recurring = true
-8. Gán quadrant phù hợp dựa trên ngữ cảnh: gấp+quan trọng → do_first, quan trọng → schedule, gấp → delegate, còn lại → eliminate
-9. Bạn có thể gợi ý phần thưởng cho người dùng khi họ yêu cầu
-10. Khi user hỏi về thành tích, hướng dẫn họ chuyển sang trang achievements`;
+### Tạo việc mẫu (Template)
+:::ACTION
+{"type":"ADD_TEMPLATE","title":"tên mẫu","quadrant":"do_first","subtasks":["việc con 1","việc con 2"],"notes":"ghi chú"}
+:::END
+
+### Sử dụng mẫu để tạo việc
+:::ACTION
+{"type":"USE_TEMPLATE","search":"từ khóa tìm mẫu"}
+:::END
+
+### Thêm phần thưởng
+:::ACTION
+{"type":"ADD_REWARD","title":"tên phần thưởng","description":"mô tả","icon":"🎁","xpCost":100}
+:::END
+
+### Xóa phần thưởng
+:::ACTION
+{"type":"REMOVE_REWARD","search":"từ khóa"}
+:::END
+
+### Sửa phần thưởng
+:::ACTION
+{"type":"UPDATE_REWARD","search":"từ khóa","title":"tên mới","xpCost":150}
+:::END
+
+### Thêm thành tích tùy chỉnh
+:::ACTION
+{"type":"ADD_ACHIEVEMENT","title":"tên thành tích","description":"mô tả","icon":"🏆","xpReward":50}
+:::END
+
+### Xóa thành tích
+:::ACTION
+{"type":"REMOVE_ACHIEVEMENT","search":"từ khóa"}
+:::END
+
+### Sửa thành tích
+:::ACTION
+{"type":"UPDATE_ACHIEVEMENT","search":"từ khóa","title":"tên mới","xpReward":100}
+:::END
+
+### Mở khóa thành tích
+:::ACTION
+{"type":"UNLOCK_ACHIEVEMENT","search":"từ khóa"}
+:::END
+
+## Quy tắc
+1. Luôn kèm lời giải thích ngắn gọn
+2. Nếu hỏi chuyện thông thường, chỉ trả lời văn bản
+3. Giỏi gợi ý quản lý thời gian, Eisenhower, thói quen tốt
+4. Khi "hoàn thành tất cả" → COMPLETE_TASK cho từng việc pending
+5. Gán quadrant phù hợp theo ngữ cảnh
+6. Khi tạo mẫu, nghĩ ra subtasks phù hợp
+7. Phần thưởng: gợi ý phần thưởng thực tế, phù hợp XP người dùng
+8. Thành tích: tạo thành tích có ý nghĩa, mang tính động viên
+9. Bạn có thể tạo cả thành tích ngắn hạn (trong ngày) lẫn dài hạn (tích lũy)
+10. Có thể gợi ý thu chi khi tạo việc nếu liên quan đến tài chính`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -62,22 +105,18 @@ Deno.serve(async (req: Request) => {
 
   try {
     const { messages, taskContext } = await req.json();
-
     const apiKey = Deno.env.get('ONSPACE_AI_API_KEY');
     const baseUrl = Deno.env.get('ONSPACE_AI_BASE_URL');
 
     if (!apiKey || !baseUrl) {
       console.error('Missing ONSPACE_AI_API_KEY or ONSPACE_AI_BASE_URL');
-      return new Response(
-        JSON.stringify({ error: 'AI service not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'AI service not configured' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     const contextParts: string[] = [];
     if (taskContext) {
       if (taskContext.pending?.length > 0) {
-        contextParts.push(`Việc cần làm: ${taskContext.pending.map((t: any) => `"${t.title}" [${t.quadrant}]${t.deadline ? ` (hạn: ${new Date(t.deadline).toLocaleString('vi-VN')})` : ''}`).join(', ')}`);
+        contextParts.push(`Việc cần làm: ${taskContext.pending.map((t: any) => `"${t.title}" [${t.quadrant}]${t.deadline ? ` (hạn: ${new Date(t.deadline).toLocaleString('vi-VN')})` : ''}${t.finance ? ` (${t.finance.type}: ${t.finance.amount}đ)` : ''}`).join(', ')}`);
       } else {
         contextParts.push('Việc cần làm: Trống');
       }
@@ -85,7 +124,7 @@ Deno.serve(async (req: Request) => {
         contextParts.push(`Đang làm: ${taskContext.inProgress.map((t: any) => `"${t.title}"`).join(', ')}`);
       }
       if (taskContext.done?.length > 0) {
-        contextParts.push(`Đã hoàn thành: ${taskContext.done.map((t: any) => `"${t.title}"${t.duration ? ` (${Math.floor(t.duration/60)}m${t.duration%60}s)` : ''}`).join(', ')}`);
+        contextParts.push(`Đã xong: ${taskContext.done.map((t: any) => `"${t.title}"${t.duration ? ` (${Math.floor(t.duration / 60)}m)` : ''}`).join(', ')}`);
       }
       if (taskContext.overdue?.length > 0) {
         contextParts.push(`Quá hạn: ${taskContext.overdue.map((t: any) => `"${t.title}"`).join(', ')}`);
@@ -93,11 +132,27 @@ Deno.serve(async (req: Request) => {
       if (taskContext.timerRunning || taskContext.timerPaused) {
         contextParts.push(`Timer ${taskContext.timerPaused ? 'tạm dừng' : 'đang chạy'} cho: "${taskContext.timerTask}" (${taskContext.timerElapsed || 0}s)`);
       }
+      if (taskContext.templates?.length > 0) {
+        contextParts.push(`Mẫu: ${taskContext.templates.map((t: any) => `"${t.title}"`).join(', ')}`);
+      }
+      if (taskContext.gamification) {
+        const g = taskContext.gamification;
+        contextParts.push(`XP: ${g.xp}, Level: ${g.level}, Streak: ${g.streak} ngày`);
+        if (g.rewards?.length > 0) {
+          contextParts.push(`Phần thưởng: ${g.rewards.map((r: any) => `"${r.title}" (${r.xpCost}XP${r.claimed ? ', đã nhận' : ''})`).join(', ')}`);
+        }
+        const unlockedAch = g.achievements?.filter((a: any) => a.unlockedAt) || [];
+        const lockedAch = g.achievements?.filter((a: any) => !a.unlockedAt) || [];
+        if (unlockedAch.length > 0) {
+          contextParts.push(`Thành tích đạt: ${unlockedAch.map((a: any) => `"${a.title}"`).join(', ')}`);
+        }
+        if (lockedAch.length > 0) {
+          contextParts.push(`Thành tích chưa đạt: ${lockedAch.slice(0, 5).map((a: any) => `"${a.title}"`).join(', ')}`);
+        }
+      }
     }
 
-    const systemContent = SYSTEM_PROMPT + (contextParts.length > 0
-      ? `\n\n## Trạng thái hiện tại\n${contextParts.join('\n')}`
-      : '');
+    const systemContent = SYSTEM_PROMPT + (contextParts.length > 0 ? `\n\n## Trạng thái hiện tại\n${contextParts.join('\n')}` : '');
 
     const aiMessages = [
       { role: 'system', content: systemContent },
@@ -108,40 +163,21 @@ Deno.serve(async (req: Request) => {
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
-        messages: aiMessages,
-        stream: true,
-      }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'google/gemini-3-flash-preview', messages: aiMessages, stream: true }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
       console.error('OnSpace AI error:', response.status, errText);
-      return new Response(
-        JSON.stringify({ error: `AI error: ${response.status}` }),
-        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: `AI error: ${response.status}` }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     return new Response(response.body, {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
+      headers: { ...corsHeaders, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
     });
-
   } catch (err) {
     console.error('Edge function error:', err);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

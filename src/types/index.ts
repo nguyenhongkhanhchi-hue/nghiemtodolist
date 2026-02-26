@@ -1,30 +1,40 @@
+export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'overdue' | 'paused';
+export type RecurringType = 'none' | 'daily' | 'weekdays' | 'weekly' | 'custom';
+export type TabType = 'pending' | 'done' | 'overdue';
+export type PageType = 'tasks' | 'stats' | 'ai' | 'settings';
+
+export interface RecurringConfig {
+  type: RecurringType;
+  customDays?: number[]; // 0=Sun, 1=Mon, ... 6=Sat
+  label?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
-  status: 'pending' | 'done' | 'overdue';
+  status: TaskStatus;
+  priority: Priority;
   createdAt: number;
   completedAt?: number;
-  dueTime?: string;
+  deadline?: number; // timestamp
   duration?: number; // seconds spent on timer
+  totalPausedTime?: number;
   order: number;
-  isRecurring?: boolean;
+  recurring: RecurringConfig;
   recurringLabel?: string;
-}
-
-export interface MusicTrack {
-  id: string;
-  title: string;
-  url: string;
-  originalUrl?: string;
-  source?: 'gdrive' | 'direct';
-  addedAt: number;
+  timerSessions?: { start: number; end: number; elapsed: number }[];
+  notes?: string;
 }
 
 export interface TimerState {
   taskId: string | null;
   isRunning: boolean;
+  isPaused: boolean;
   elapsed: number; // seconds
   startTime: number | null;
+  pausedAt: number | null;
+  totalPausedDuration: number;
 }
 
 export interface ChatMessage {
@@ -39,5 +49,8 @@ export interface TaskStats {
   completions: { date: string; duration: number }[];
 }
 
-export type TabType = 'pending' | 'done' | 'overdue';
-export type PageType = 'tasks' | 'stats' | 'music' | 'ai' | 'settings';
+export interface UserProfile {
+  id: string;
+  email: string;
+  username: string;
+}

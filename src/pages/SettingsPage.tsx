@@ -1,5 +1,6 @@
-import { useTaskStore, useSettingsStore } from '@/stores';
-import { Type, Volume2, Mic, Trash2, AlertTriangle, Info, Minus, Plus as PlusIcon } from 'lucide-react';
+import { useTaskStore, useAuthStore, useSettingsStore } from '@/stores';
+import { supabase } from '@/lib/supabase';
+import { Type, Volume2, Mic, Trash2, AlertTriangle, Minus, Plus as PlusIcon, LogOut, User } from 'lucide-react';
 
 export default function SettingsPage() {
   const clearAllData = useTaskStore((s) => s.clearAllData);
@@ -9,6 +10,8 @@ export default function SettingsPage() {
   const setFontScale = useSettingsStore((s) => s.setFontScale);
   const setTickSound = useSettingsStore((s) => s.setTickSound);
   const setVoiceEnabled = useSettingsStore((s) => s.setVoiceEnabled);
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
   const fontSizes = [
     { label: 'Nhỏ', value: 0.85 },
@@ -24,15 +27,45 @@ export default function SettingsPage() {
     }
   };
 
+  const handleLogout = async () => {
+    if (user?.id !== 'guest') {
+      await supabase.auth.signOut();
+    }
+    logout();
+  };
+
   return (
     <div className="flex flex-col h-full px-4 pt-4 pb-24 overflow-y-auto">
       <h1 className="text-xl font-bold text-[var(--text-primary)] mb-6">Cài đặt</h1>
+
+      {/* User info */}
+      <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-3">
+        <div className="flex items-center gap-3">
+          <div className="size-11 rounded-xl bg-[var(--accent-dim)] flex items-center justify-center">
+            <User size={20} className="text-[var(--accent-primary)]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{user?.username || 'Khách'}</p>
+            <p className="text-xs text-[var(--text-muted)] truncate">{user?.id === 'guest' ? 'Chế độ khách' : user?.email}</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[var(--bg-surface)] text-xs text-[var(--text-muted)] active:opacity-70 min-h-[40px]"
+          >
+            <LogOut size={14} />
+            Đăng xuất
+          </button>
+        </div>
+      </div>
 
       {/* Font size */}
       <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-3">
         <div className="flex items-center gap-2.5 mb-3">
           <Type size={18} className="text-[var(--accent-primary)]" />
           <span className="text-sm font-medium text-[var(--text-primary)]">Cỡ chữ</span>
+          <span className="text-xs font-mono text-[var(--accent-primary)] tabular-nums ml-auto">
+            {Math.round(fontScale * 100)}%
+          </span>
         </div>
         <div className="grid grid-cols-4 gap-2">
           {fontSizes.map(({ label, value }) => (
@@ -51,17 +84,18 @@ export default function SettingsPage() {
         </div>
         <div className="flex items-center justify-center gap-4 mt-3">
           <button
-            onClick={() => setFontScale(Math.max(0.7, fontScale - 0.05))}
+            onClick={() => setFontScale(Math.max(0.7, Math.round((fontScale - 0.05) * 100) / 100))}
             className="size-10 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-secondary)] active:opacity-70"
             aria-label="Giảm cỡ chữ"
           >
             <Minus size={16} />
           </button>
-          <span className="text-sm font-mono text-[var(--accent-primary)] tabular-nums w-12 text-center">
-            {Math.round(fontScale * 100)}%
-          </span>
+          {/* Preview text */}
+          <p className="text-[var(--text-primary)] font-medium transition-all" style={{ fontSize: `${16 * fontScale}px` }}>
+            Xem trước
+          </p>
           <button
-            onClick={() => setFontScale(Math.min(1.5, fontScale + 0.05))}
+            onClick={() => setFontScale(Math.min(1.5, Math.round((fontScale + 0.05) * 100) / 100))}
             className="size-10 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-secondary)] active:opacity-70"
             aria-label="Tăng cỡ chữ"
           >
@@ -112,7 +146,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Data management */}
-      <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-3">
+      <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)]">
         <div className="flex items-center gap-2.5 mb-3">
           <AlertTriangle size={18} className="text-[var(--error)]" />
           <span className="text-sm font-medium text-[var(--text-primary)]">Dữ liệu</span>
@@ -124,17 +158,6 @@ export default function SettingsPage() {
           <Trash2 size={16} />
           Xóa toàn bộ dữ liệu
         </button>
-      </div>
-
-      {/* About */}
-      <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)]">
-        <div className="flex items-center gap-2.5 mb-2">
-          <Info size={18} className="text-[var(--accent-primary)]" />
-          <span className="text-sm font-medium text-[var(--text-primary)]">Giới thiệu</span>
-        </div>
-        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-          TaskFlow v1.0 — Quản lý công việc hàng ngày với timer giọng nói, playlist nhạc và trợ lý AI. Dữ liệu được lưu trực tiếp trên thiết bị.
-        </p>
       </div>
     </div>
   );

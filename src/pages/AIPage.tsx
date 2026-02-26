@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useChatStore, useTaskStore, useMusicStore, useSettingsStore } from '@/stores';
+import { useChatStore, useTaskStore, useSettingsStore } from '@/stores';
 import { streamAIChat, parseAIResponse, type AIAction } from '@/lib/aiService';
-import { Send, Bot, User, Trash2, Sparkles, Zap, CheckCircle2, AlertCircle, Mic, MicOff } from 'lucide-react';
+import { Send, Bot, User, Trash2, Sparkles, Zap, Mic, MicOff } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 
 function ActionBadge({ action, result }: { action: AIAction; result: string }) {
@@ -11,7 +11,6 @@ function ActionBadge({ action, result }: { action: AIAction; result: string }) {
     DELETE_TASK: '🗑️',
     RESTORE_TASK: '↩️',
     START_TIMER: '⏱️',
-    ADD_MUSIC: '🎵',
     NAVIGATE: '📍',
   };
 
@@ -38,8 +37,6 @@ export default function AIPage() {
   const restoreTask = useTaskStore((s) => s.restoreTask);
   const startTimer = useTaskStore((s) => s.startTimer);
   const timer = useTaskStore((s) => s.timer);
-  const addTrack = useMusicStore((s) => s.addTrack);
-  const musicTracks = useMusicStore((s) => s.tracks);
   const setCurrentPage = useSettingsStore((s) => s.setCurrentPage);
 
   const [input, setInput] = useState('');
@@ -51,9 +48,7 @@ export default function AIPage() {
   const { isListening, transcript, startListening, stopListening, resetTranscript, isSupported } = useSpeechRecognition();
 
   useEffect(() => {
-    if (transcript) {
-      setInput(transcript);
-    }
+    if (transcript) setInput(transcript);
   }, [transcript]);
 
   useEffect(() => {
@@ -65,14 +60,13 @@ export default function AIPage() {
       case 'ADD_TASK': {
         const title = action.title || '';
         if (!title) return '⚠️ Thiếu tên việc';
-        addTask(title, action.recurring || false, action.recurring ? title : undefined);
+        addTask(title, (action.priority as any) || 'medium', undefined, action.recurring ? { type: 'daily' } : { type: 'none' });
         return `Đã thêm "${title}"${action.recurring ? ' (lặp lại)' : ''}`;
       }
-
       case 'COMPLETE_TASK': {
         const search = (action.search || '').toLowerCase();
         const task = tasks.find(t =>
-          t.status === 'pending' && t.title.toLowerCase().includes(search)
+          (t.status === 'pending' || t.status === 'in_progress') && t.title.toLowerCase().includes(search)
         );
         if (task) {
           completeTask(task.id);
@@ -80,7 +74,6 @@ export default function AIPage() {
         }
         return `⚠️ Không tìm thấy việc "${action.search}"`;
       }
-
       case 'DELETE_TASK': {
         const search = (action.search || '').toLowerCase();
         const task = tasks.find(t => t.title.toLowerCase().includes(search));
@@ -90,7 +83,6 @@ export default function AIPage() {
         }
         return `⚠️ Không tìm thấy việc "${action.search}"`;
       }
-
       case 'RESTORE_TASK': {
         const search = (action.search || '').toLowerCase();
         const task = tasks.find(t =>
@@ -102,12 +94,11 @@ export default function AIPage() {
         }
         return `⚠️ Không tìm thấy việc "${action.search}"`;
       }
-
       case 'START_TIMER': {
-        if (timer.isRunning) return '⚠️ Timer đang chạy, hãy dừng trước';
+        if (timer.isRunning || timer.isPaused) return '⚠️ Timer đang chạy, hãy dừng trước';
         const search = (action.search || '').toLowerCase();
         const task = tasks.find(t =>
-          t.status === 'pending' && t.title.toLowerCase().includes(search)
+          (t.status === 'pending' || t.status === 'in_progress') && t.title.toLowerCase().includes(search)
         );
         if (task) {
           startTimer(task.id);
@@ -115,29 +106,19 @@ export default function AIPage() {
         }
         return `⚠️ Không tìm thấy việc "${action.search}"`;
       }
-
-      case 'ADD_MUSIC': {
-        const title = action.title || 'Không rõ tên';
-        const url = action.url || '';
-        if (!url) return '⚠️ Thiếu link nhạc';
-        addTrack(title, url);
-        return `Đã thêm nhạc "${title}"`;
-      }
-
       case 'NAVIGATE': {
         const page = action.page as any;
-        if (['tasks', 'stats', 'music', 'settings'].includes(page)) {
+        if (['tasks', 'stats', 'settings'].includes(page)) {
           setCurrentPage(page);
-          const labels: Record<string, string> = { tasks: 'Việc', stats: 'Thống kê', music: 'Nhạc', settings: 'Cài đặt' };
+          const labels: Record<string, string> = { tasks: 'Việc', stats: 'Thống kê', settings: 'Cài đặt' };
           return `Đã chuyển sang trang ${labels[page] || page}`;
         }
         return `⚠️ Trang "${action.page}" không tồn tại`;
       }
-
       default:
         return '⚠️ Lệnh không được hỗ trợ';
     }
-  }, [tasks, timer, addTask, completeTask, removeTask, restoreTask, startTimer, addTrack, setCurrentPage]);
+  }, [tasks, timer, addTask, completeTask, removeTask, restoreTask, startTimer, setCurrentPage]);
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -151,17 +132,17 @@ export default function AIPage() {
     setActionResults([]);
     isStreamingRef.current = true;
 
-    // Build task context for the AI
     const taskContext = {
-      pending: tasks.filter(t => t.status === 'pending').map(t => ({ id: t.id, title: t.title, isRecurring: t.isRecurring })),
+      pending: tasks.filter(t => t.status === 'pending').map(t => ({ id: t.id, title: t.title, priority: t.priority, deadline: t.deadline, recurring: t.recurring })),
+      inProgress: tasks.filter(t => t.status === 'in_progress').map(t => ({ id: t.id, title: t.title })),
       done: tasks.filter(t => t.status === 'done').slice(0, 10).map(t => ({ id: t.id, title: t.title, duration: t.duration })),
       overdue: tasks.filter(t => t.status === 'overdue').map(t => ({ id: t.id, title: t.title })),
       timerRunning: timer.isRunning,
+      timerPaused: timer.isPaused,
       timerTask: tasks.find(t => t.id === timer.taskId)?.title,
-      musicTracks: musicTracks.map(t => ({ title: t.title })),
+      timerElapsed: timer.elapsed,
     };
 
-    // Build conversation history (last 20 messages for context window)
     const chatHistory = [...messages.slice(-20).map(m => ({ role: m.role, content: m.content })), { role: 'user' as const, content: trimmed }];
 
     let fullContent = '';
@@ -169,31 +150,24 @@ export default function AIPage() {
     await streamAIChat(
       chatHistory,
       taskContext,
-      // onChunk
       (chunk) => {
         fullContent += chunk;
         setStreamingContent(fullContent);
       },
-      // onDone
       () => {
         const { text, actions } = parseAIResponse(fullContent);
-
-        // Execute all actions
         const results = actions.map(action => ({
           action,
           result: executeAction(action),
         }));
-
         setActionResults(results);
         const actionSummary = results.map(r => r.result).join('\n');
         const finalContent = text + (actionSummary ? '\n\n' + actionSummary : '');
-
         addMessage('assistant', finalContent);
         setStreamingContent('');
         setLoading(false);
         isStreamingRef.current = false;
       },
-      // onError
       (error) => {
         addMessage('assistant', `Xin lỗi, có lỗi xảy ra: ${error}`);
         setStreamingContent('');
@@ -204,11 +178,8 @@ export default function AIPage() {
   };
 
   const toggleVoice = () => {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
+    if (isListening) stopListening();
+    else startListening();
   };
 
   const suggestions = [
@@ -218,10 +189,9 @@ export default function AIPage() {
     { text: 'Tạo kế hoạch cho ngày mai', icon: '📅' },
   ];
 
-  const pendingCount = tasks.filter(t => t.status === 'pending').length;
+  const pendingCount = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
   const doneCount = tasks.filter(t => t.status === 'done').length;
 
-  // Parse streaming content for display (remove action blocks)
   const displayStreaming = streamingContent.replace(/:::ACTION\s*\n?[\s\S]*?\n?:::END/g, '').trim();
 
   return (
@@ -239,7 +209,6 @@ export default function AIPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          {/* Mini task stats */}
           <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[var(--bg-elevated)] text-[10px]">
             <span className="text-[var(--accent-primary)] font-bold tabular-nums">{pendingCount}</span>
             <span className="text-[var(--text-muted)]">việc</span>
@@ -257,13 +226,12 @@ export default function AIPage() {
         </div>
       </div>
 
-      {/* Capabilities banner */}
       {messages.length === 0 && (
         <div className="px-4 mb-2">
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,229,204,0.05)] border border-[rgba(0,229,204,0.1)]">
             <Zap size={14} className="text-[var(--accent-primary)] flex-shrink-0" />
             <p className="text-[11px] text-[var(--text-secondary)]">
-              Có thể thêm/hoàn thành/xóa việc, bấm giờ, thêm nhạc, chuyển trang — chỉ cần nói
+              Có thể thêm/hoàn thành/xóa việc, bấm giờ, chuyển trang — chỉ cần nói
             </p>
           </div>
         </div>
@@ -273,7 +241,7 @@ export default function AIPage() {
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         {messages.length === 0 && !streamingContent ? (
           <div className="flex flex-col items-center justify-center py-8">
-            <div className="size-16 rounded-2xl bg-[var(--bg-elevated)] flex items-center justify-center mb-4 relative">
+            <div className="size-16 rounded-2xl bg-[var(--bg-elevated)] flex items-center justify-center mb-4">
               <Bot size={28} className="text-[var(--accent-primary)]" />
             </div>
             <p className="text-sm text-[var(--text-secondary)] mb-1 text-center font-medium">
@@ -321,7 +289,6 @@ export default function AIPage() {
           </>
         )}
 
-        {/* Streaming content */}
         {displayStreaming && (
           <div className="flex gap-2 mb-3 justify-start">
             <div className="size-7 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -334,7 +301,6 @@ export default function AIPage() {
           </div>
         )}
 
-        {/* Action results */}
         {actionResults.length > 0 && (
           <div className="flex gap-2 mb-3 justify-start">
             <div className="size-7 flex-shrink-0" />
@@ -346,7 +312,6 @@ export default function AIPage() {
           </div>
         )}
 
-        {/* Loading indicator (before stream starts) */}
         {isLoading && !streamingContent && (
           <div className="flex gap-2 mb-3">
             <div className="size-7 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0">
@@ -368,7 +333,6 @@ export default function AIPage() {
       {/* Input */}
       <div className="px-4 pb-20 pt-2 glass-strong border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2">
-          {/* Voice button */}
           {isSupported && (
             <button
               onClick={toggleVoice}
@@ -382,7 +346,6 @@ export default function AIPage() {
               {isListening ? <MicOff size={18} /> : <Mic size={18} />}
             </button>
           )}
-
           <input
             type="text"
             value={input}

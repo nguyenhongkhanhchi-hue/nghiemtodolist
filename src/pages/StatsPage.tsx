@@ -1,13 +1,36 @@
 import { useMemo } from 'react';
 import { useTaskStore } from '@/stores';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { TrendingUp, Clock, Award, BarChart3 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
+import { TrendingUp, Clock, Award, BarChart3, Target, Flame } from 'lucide-react';
+
+const PIE_COLORS = ['var(--accent-primary)', 'var(--success)', 'var(--warning)', 'var(--error)', 'var(--info)'];
 
 export default function StatsPage() {
   const tasks = useTaskStore((s) => s.tasks);
 
+  const stats = useMemo(() => {
+    const pending = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
+    const done = tasks.filter(t => t.status === 'done').length;
+    const overdue = tasks.filter(t => t.status === 'overdue').length;
+    const total = tasks.length;
+    const completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
+
+    const totalTime = tasks.filter(t => t.status === 'done' && t.duration).reduce((sum, t) => sum + (t.duration || 0), 0);
+    const avgTime = done > 0 ? Math.round(totalTime / done) : 0;
+
+    // Priority distribution
+    const byPriority = [
+      { name: 'Khẩn cấp', value: tasks.filter(t => t.priority === 'urgent').length },
+      { name: 'Cao', value: tasks.filter(t => t.priority === 'high').length },
+      { name: 'Trung bình', value: tasks.filter(t => t.priority === 'medium').length },
+      { name: 'Thấp', value: tasks.filter(t => t.priority === 'low').length },
+    ].filter(d => d.value > 0);
+
+    return { pending, done, overdue, total, completionRate, totalTime, avgTime, byPriority };
+  }, [tasks]);
+
   const recurringStats = useMemo(() => {
-    const recurring = tasks.filter(t => t.isRecurring && t.status === 'done' && t.duration);
+    const recurring = tasks.filter(t => t.recurring.type !== 'none' && t.status === 'done' && t.duration);
     const grouped: Record<string, { label: string; completions: { date: string; duration: number }[] }> = {};
 
     recurring.forEach(t => {
@@ -16,7 +39,7 @@ export default function StatsPage() {
         grouped[label] = { label, completions: [] };
       }
       grouped[label].completions.push({
-        date: new Date(t.completedAt || t.createdAt).toLocaleDateString('vi-VN'),
+        date: new Date(t.completedAt || t.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
         duration: t.duration || 0,
       });
     });
@@ -24,21 +47,21 @@ export default function StatsPage() {
     return Object.values(grouped);
   }, [tasks]);
 
-  const totalCompleted = tasks.filter(t => t.status === 'done').length;
-  const totalTime = tasks.filter(t => t.status === 'done' && t.duration).reduce((sum, t) => sum + (t.duration || 0), 0);
-  const avgTime = totalCompleted > 0 ? Math.round(totalTime / totalCompleted) : 0;
-
   const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
+    if (secs === 0) return '0s';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
     const s = secs % 60;
-    if (m === 0) return `${s}s`;
-    return `${m}m ${s}s`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
   };
 
   const statCards = [
-    { icon: Award, label: 'Đã hoàn thành', value: totalCompleted.toString(), color: 'var(--success)' },
-    { icon: Clock, label: 'Tổng thời gian', value: formatTime(totalTime), color: 'var(--accent-primary)' },
-    { icon: TrendingUp, label: 'TB mỗi việc', value: formatTime(avgTime), color: 'var(--warning)' },
+    { icon: Award, label: 'Hoàn thành', value: stats.done.toString(), color: 'var(--success)' },
+    { icon: Clock, label: 'Tổng thời gian', value: formatTime(stats.totalTime), color: 'var(--accent-primary)' },
+    { icon: TrendingUp, label: 'TB mỗi việc', value: formatTime(stats.avgTime), color: 'var(--warning)' },
+    { icon: Target, label: 'Tỷ lệ', value: `${stats.completionRate}%`, color: 'var(--info)' },
   ];
 
   return (
@@ -46,15 +69,60 @@ export default function StatsPage() {
       <h1 className="text-xl font-bold text-[var(--text-primary)] mb-4">Thống kê</h1>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 gap-3 mb-6">
         {statCards.map(({ icon: Icon, label, value, color }) => (
-          <div key={label} className="bg-[var(--bg-elevated)] rounded-xl p-3 border border-[var(--border-subtle)]">
+          <div key={label} className="bg-[var(--bg-elevated)] rounded-xl p-3.5 border border-[var(--border-subtle)]">
             <Icon size={18} style={{ color }} className="mb-2" />
-            <p className="text-lg font-bold text-[var(--text-primary)] font-mono tabular-nums">{value}</p>
-            <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{label}</p>
+            <p className="text-xl font-bold text-[var(--text-primary)] font-mono tabular-nums">{value}</p>
+            <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{label}</p>
           </div>
         ))}
       </div>
+
+      {/* Priority distribution */}
+      {stats.byPriority.length > 0 && (
+        <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-4">
+          <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3 flex items-center gap-2">
+            <Flame size={16} className="text-[var(--warning)]" />
+            Phân bố ưu tiên
+          </h2>
+          <div className="h-32">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={stats.byPriority}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={30}
+                  outerRadius={55}
+                  dataKey="value"
+                  strokeWidth={0}
+                >
+                  {stats.byPriority.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex flex-wrap justify-center gap-3 mt-2">
+            {stats.byPriority.map((item, i) => (
+              <div key={item.name} className="flex items-center gap-1.5">
+                <div className="size-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                <span className="text-[10px] text-[var(--text-muted)]">{item.name}: {item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recurring task charts */}
       <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3 flex items-center gap-2">

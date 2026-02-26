@@ -1,13 +1,15 @@
 import { supabase } from '@/lib/supabase';
-import type { Task, MusicTrack } from '@/types';
+import type { Task } from '@/types';
 
 interface TaskContext {
-  pending: Pick<Task, 'id' | 'title' | 'isRecurring'>[];
+  pending: Pick<Task, 'id' | 'title' | 'priority' | 'deadline' | 'recurring'>[];
   done: Pick<Task, 'id' | 'title' | 'duration'>[];
   overdue: Pick<Task, 'id' | 'title'>[];
+  inProgress: Pick<Task, 'id' | 'title'>[];
   timerRunning: boolean;
+  timerPaused: boolean;
   timerTask?: string;
-  musicTracks: Pick<MusicTrack, 'title'>[];
+  timerElapsed?: number;
 }
 
 interface ChatMessage {
@@ -16,17 +18,14 @@ interface ChatMessage {
 }
 
 export interface AIAction {
-  type: 'ADD_TASK' | 'COMPLETE_TASK' | 'DELETE_TASK' | 'RESTORE_TASK' | 'START_TIMER' | 'ADD_MUSIC' | 'NAVIGATE';
+  type: 'ADD_TASK' | 'COMPLETE_TASK' | 'DELETE_TASK' | 'RESTORE_TASK' | 'START_TIMER' | 'NAVIGATE';
   title?: string;
   search?: string;
-  url?: string;
   page?: string;
   recurring?: boolean;
+  priority?: string;
 }
 
-/**
- * Parse AI response to extract action blocks and display text
- */
 export function parseAIResponse(content: string): { text: string; actions: AIAction[] } {
   const actions: AIAction[] = [];
   let text = content;
@@ -43,15 +42,11 @@ export function parseAIResponse(content: string): { text: string; actions: AIAct
     }
   }
 
-  // Remove action blocks from display text
   text = text.replace(/:::ACTION\s*\n?[\s\S]*?\n?:::END/g, '').trim();
 
   return { text, actions };
 }
 
-/**
- * Call the AI chat edge function with streaming
- */
 export async function streamAIChat(
   messages: ChatMessage[],
   taskContext: TaskContext,

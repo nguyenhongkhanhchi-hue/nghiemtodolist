@@ -2,7 +2,6 @@ import { useSettingsStore } from '@/stores';
 import {
   ListTodo,
   BarChart3,
-  Music,
   Bot,
   Settings,
 } from 'lucide-react';
@@ -11,7 +10,6 @@ import type { PageType } from '@/types';
 const navItems: { page: PageType; icon: typeof ListTodo; label: string }[] = [
   { page: 'tasks', icon: ListTodo, label: 'Việc' },
   { page: 'stats', icon: BarChart3, label: 'Thống kê' },
-  { page: 'music', icon: Music, label: 'Nhạc' },
   { page: 'ai', icon: Bot, label: 'AI' },
   { page: 'settings', icon: Settings, label: 'Cài đặt' },
 ];
@@ -22,7 +20,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 glass-strong safe-area-bottom">
-      <div className="flex items-center justify-around h-16 px-2">
+      <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
         {navItems.map(({ page, icon: Icon, label }) => {
           const isActive = currentPage === page;
           return (

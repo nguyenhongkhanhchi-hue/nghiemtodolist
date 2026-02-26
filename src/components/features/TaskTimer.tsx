@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTaskStore, useSettingsStore } from '@/stores';
 import { useTickSound } from '@/hooks/useTickSound';
 import { useVietnameseVoice } from '@/hooks/useVietnameseVoice';
-import { Play, Square, CheckCircle2, X } from 'lucide-react';
+import { Pause, Play, Square, CheckCircle2, X } from 'lucide-react';
 
 export function TaskTimer() {
   const timer = useTaskStore((s) => s.timer);
   const tasks = useTaskStore((s) => s.tasks);
   const tickTimer = useTaskStore((s) => s.tickTimer);
   const stopTimer = useTaskStore((s) => s.stopTimer);
+  const pauseTimer = useTaskStore((s) => s.pauseTimer);
+  const resumeTimer = useTaskStore((s) => s.resumeTimer);
   const completeTask = useTaskStore((s) => s.completeTask);
   const tickSoundEnabled = useSettingsStore((s) => s.tickSoundEnabled);
   const voiceEnabled = useSettingsStore((s) => s.voiceEnabled);
@@ -24,30 +26,30 @@ export function TaskTimer() {
 
   // Tick every second
   useEffect(() => {
-    if (!timer.isRunning) return;
+    if (!timer.isRunning || timer.isPaused) return;
     const interval = setInterval(() => {
       tickTimer();
     }, 1000);
     return () => clearInterval(interval);
-  }, [timer.isRunning, tickTimer]);
+  }, [timer.isRunning, timer.isPaused, tickTimer]);
 
   // Tick sound
   useEffect(() => {
-    if (!timer.isRunning || !tickSoundEnabled) return;
+    if (!timer.isRunning || timer.isPaused || !tickSoundEnabled) return;
     const interval = setInterval(() => {
       playTick();
     }, 1000);
     return () => clearInterval(interval);
-  }, [timer.isRunning, tickSoundEnabled, playTick]);
+  }, [timer.isRunning, timer.isPaused, tickSoundEnabled, playTick]);
 
   // Voice announcement every 30 seconds
   useEffect(() => {
-    if (!timer.isRunning || !voiceEnabled) return;
+    if (!timer.isRunning || timer.isPaused || !voiceEnabled) return;
     if (timer.elapsed > 0 && timer.elapsed % 30 === 0 && timer.elapsed !== lastAnnounced.current) {
       lastAnnounced.current = timer.elapsed;
       announceTime(timer.elapsed);
     }
-  }, [timer.elapsed, timer.isRunning, voiceEnabled, announceTime]);
+  }, [timer.elapsed, timer.isRunning, timer.isPaused, voiceEnabled, announceTime]);
 
   const handleComplete = useCallback(() => {
     if (!currentTask) return;
@@ -63,6 +65,14 @@ export function TaskTimer() {
   const handleStop = useCallback(() => {
     stopTimer();
   }, [stopTimer]);
+
+  const handlePauseResume = useCallback(() => {
+    if (timer.isPaused) {
+      resumeTimer();
+    } else {
+      pauseTimer();
+    }
+  }, [timer.isPaused, pauseTimer, resumeTimer]);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -92,24 +102,35 @@ export function TaskTimer() {
     );
   }
 
-  // Timer bar when running
-  if (!timer.isRunning || !currentTask) return null;
+  // Timer bar when running or paused
+  if ((!timer.isRunning && !timer.isPaused) || !currentTask) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[80] glass-strong border-b border-[var(--border-accent)]">
-      <div className="flex items-center gap-3 px-4 py-3">
+    <div className={`fixed top-0 left-0 right-0 z-[80] glass-strong border-b ${timer.isPaused ? 'border-[var(--warning)]' : 'border-[var(--border-accent)]'}`}>
+      <div className="flex items-center gap-3 px-4 py-3 max-w-lg mx-auto">
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-[var(--accent-primary)] font-medium truncate">
-            Đang đếm giờ
+          <p className={`text-xs font-medium truncate ${timer.isPaused ? 'text-[var(--warning)]' : 'text-[var(--accent-primary)]'}`}>
+            {timer.isPaused ? 'Tạm dừng' : 'Đang đếm giờ'}
           </p>
           <p className="text-sm font-medium text-[var(--text-primary)] truncate">
             {currentTask.title}
           </p>
         </div>
-        <div className="font-mono text-xl font-bold text-[var(--accent-primary)] tabular-nums animate-timer-pulse">
+        <div className={`font-mono text-xl font-bold tabular-nums ${timer.isPaused ? 'text-[var(--warning)]' : 'text-[var(--accent-primary)] animate-timer-pulse'}`}>
           {formatTime(timer.elapsed)}
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={handlePauseResume}
+            className={`size-10 rounded-xl flex items-center justify-center active:opacity-70 ${
+              timer.isPaused
+                ? 'bg-[rgba(0,229,204,0.2)] text-[var(--accent-primary)]'
+                : 'bg-[rgba(251,191,36,0.2)] text-[var(--warning)]'
+            }`}
+            aria-label={timer.isPaused ? 'Tiếp tục' : 'Tạm dừng'}
+          >
+            {timer.isPaused ? <Play size={18} /> : <Pause size={18} />}
+          </button>
           <button
             onClick={handleComplete}
             className="size-10 rounded-xl bg-[rgba(52,211,153,0.2)] flex items-center justify-center text-[var(--success)] active:opacity-70"

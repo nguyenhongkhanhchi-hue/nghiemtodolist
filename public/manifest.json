@@ -1,18 +1,27 @@
 {
-  "name": "TaskFlow",
+  "name": "TaskFlow - Quản Lý Công Việc",
   "short_name": "TaskFlow",
-  "description": "Quản lý công việc hàng ngày chuyên nghiệp",
+  "description": "Quản lý công việc hàng ngày chuyên nghiệp với timer, giọng nói và AI",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0A0A0F",
   "theme_color": "#00E5CC",
   "orientation": "portrait",
+  "categories": ["productivity", "utilities"],
+  "lang": "vi",
   "icons": [
+    {
+      "src": "/og-image.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
     {
       "src": "/og-image.jpg",
       "sizes": "512x512",
       "type": "image/jpeg",
-      "purpose": "any maskable"
+      "purpose": "maskable"
     }
   ]
 }

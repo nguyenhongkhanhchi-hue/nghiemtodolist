@@ -2,8 +2,23 @@ import { useMemo } from 'react';
 import { useTaskStore } from '@/stores';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Clock, Award, BarChart3, Target, Flame } from 'lucide-react';
+import type { EisenhowerQuadrant } from '@/types';
 
-const PIE_COLORS = ['var(--accent-primary)', 'var(--success)', 'var(--warning)', 'var(--error)', 'var(--info)'];
+const QUADRANT_COLORS: Record<EisenhowerQuadrant, string> = {
+  do_first: 'var(--error)',
+  schedule: 'var(--accent-primary)',
+  delegate: 'var(--warning)',
+  eliminate: 'var(--text-muted)',
+};
+
+const QUADRANT_NAMES: Record<EisenhowerQuadrant, string> = {
+  do_first: 'Q1 Làm ngay',
+  schedule: 'Q2 Lên lịch',
+  delegate: 'Q3 Ủy thác',
+  eliminate: 'Q4 Loại bỏ',
+};
+
+const PIE_COLORS = ['#F87171', '#00E5CC', '#FBBF24', '#5A5A6E'];
 
 export default function StatsPage() {
   const tasks = useTaskStore((s) => s.tasks);
@@ -18,15 +33,14 @@ export default function StatsPage() {
     const totalTime = tasks.filter(t => t.status === 'done' && t.duration).reduce((sum, t) => sum + (t.duration || 0), 0);
     const avgTime = done > 0 ? Math.round(totalTime / done) : 0;
 
-    // Priority distribution
-    const byPriority = [
-      { name: 'Khẩn cấp', value: tasks.filter(t => t.priority === 'urgent').length },
-      { name: 'Cao', value: tasks.filter(t => t.priority === 'high').length },
-      { name: 'Trung bình', value: tasks.filter(t => t.priority === 'medium').length },
-      { name: 'Thấp', value: tasks.filter(t => t.priority === 'low').length },
+    const byQuadrant = [
+      { name: QUADRANT_NAMES.do_first, value: tasks.filter(t => t.quadrant === 'do_first').length },
+      { name: QUADRANT_NAMES.schedule, value: tasks.filter(t => t.quadrant === 'schedule').length },
+      { name: QUADRANT_NAMES.delegate, value: tasks.filter(t => t.quadrant === 'delegate').length },
+      { name: QUADRANT_NAMES.eliminate, value: tasks.filter(t => t.quadrant === 'eliminate').length },
     ].filter(d => d.value > 0);
 
-    return { pending, done, overdue, total, completionRate, totalTime, avgTime, byPriority };
+    return { pending, done, overdue, total, completionRate, totalTime, avgTime, byQuadrant };
   }, [tasks]);
 
   const recurringStats = useMemo(() => {
@@ -68,7 +82,6 @@ export default function StatsPage() {
     <div className="flex flex-col h-full px-4 pt-4 pb-24 overflow-y-auto">
       <h1 className="text-xl font-bold text-[var(--text-primary)] mb-4">Thống kê</h1>
 
-      {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         {statCards.map(({ icon: Icon, label, value, color }) => (
           <div key={label} className="bg-[var(--bg-elevated)] rounded-xl p-3.5 border border-[var(--border-subtle)]">
@@ -79,18 +92,18 @@ export default function StatsPage() {
         ))}
       </div>
 
-      {/* Priority distribution */}
-      {stats.byPriority.length > 0 && (
+      {/* Eisenhower distribution */}
+      {stats.byQuadrant.length > 0 && (
         <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-4">
           <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3 flex items-center gap-2">
             <Flame size={16} className="text-[var(--warning)]" />
-            Phân bố ưu tiên
+            Ma trận Eisenhower
           </h2>
           <div className="h-32">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={stats.byPriority}
+                  data={stats.byQuadrant}
                   cx="50%"
                   cy="50%"
                   innerRadius={30}
@@ -98,7 +111,7 @@ export default function StatsPage() {
                   dataKey="value"
                   strokeWidth={0}
                 >
-                  {stats.byPriority.map((_, index) => (
+                  {stats.byQuadrant.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
@@ -114,7 +127,7 @@ export default function StatsPage() {
             </ResponsiveContainer>
           </div>
           <div className="flex flex-wrap justify-center gap-3 mt-2">
-            {stats.byPriority.map((item, i) => (
+            {stats.byQuadrant.map((item, i) => (
               <div key={item.name} className="flex items-center gap-1.5">
                 <div className="size-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
                 <span className="text-[10px] text-[var(--text-muted)]">{item.name}: {item.value}</span>
@@ -124,7 +137,6 @@ export default function StatsPage() {
         </div>
       )}
 
-      {/* Recurring task charts */}
       <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3 flex items-center gap-2">
         <BarChart3 size={16} className="text-[var(--accent-primary)]" />
         Biểu đồ việc lặp lại
@@ -136,7 +148,7 @@ export default function StatsPage() {
             <BarChart3 size={24} className="text-[var(--text-muted)]" />
           </div>
           <p className="text-sm text-[var(--text-muted)] mb-1">Chưa có dữ liệu</p>
-          <p className="text-xs text-[var(--text-muted)]">Đánh dấu "Lặp lại" khi thêm việc để thống kê</p>
+          <p className="text-xs text-[var(--text-muted)]">Chọn "Lặp lại" khi thêm việc để thống kê</p>
         </div>
       ) : (
         recurringStats.map((stat) => (
@@ -147,10 +159,7 @@ export default function StatsPage() {
                 <BarChart data={stat.completions}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-                    tickFormatter={(v) => formatTime(v)}
-                  />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v) => formatTime(v)} />
                   <Tooltip
                     contentStyle={{
                       background: 'var(--bg-surface)',

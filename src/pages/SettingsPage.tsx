@@ -1,15 +1,43 @@
 import { useTaskStore, useAuthStore, useSettingsStore } from '@/stores';
 import { supabase } from '@/lib/supabase';
-import { Type, Volume2, Mic, Trash2, AlertTriangle, Minus, Plus as PlusIcon, LogOut, User } from 'lucide-react';
+import { requestNotificationPermission, canSendNotification } from '@/lib/notifications';
+import { Type, Volume2, Mic, Trash2, AlertTriangle, Minus, Plus as PlusIcon, LogOut, User, Globe, Bell, BellOff } from 'lucide-react';
+
+const TIMEZONES = [
+  { label: 'Việt Nam (GMT+7)', value: 'Asia/Ho_Chi_Minh' },
+  { label: 'Nhật Bản (GMT+9)', value: 'Asia/Tokyo' },
+  { label: 'Hàn Quốc (GMT+9)', value: 'Asia/Seoul' },
+  { label: 'Singapore (GMT+8)', value: 'Asia/Singapore' },
+  { label: 'Thái Lan (GMT+7)', value: 'Asia/Bangkok' },
+  { label: 'Ấn Độ (GMT+5:30)', value: 'Asia/Kolkata' },
+  { label: 'Úc (GMT+10)', value: 'Australia/Sydney' },
+  { label: 'Mỹ PST (GMT-8)', value: 'America/Los_Angeles' },
+  { label: 'Mỹ EST (GMT-5)', value: 'America/New_York' },
+  { label: 'Anh (GMT+0)', value: 'Europe/London' },
+  { label: 'Pháp (GMT+1)', value: 'Europe/Paris' },
+  { label: 'Dubai (GMT+4)', value: 'Asia/Dubai' },
+];
+
+const NOTIFY_BEFORE_OPTIONS = [
+  { label: '5 phút', value: 5 },
+  { label: '15 phút', value: 15 },
+  { label: '30 phút', value: 30 },
+  { label: '1 giờ', value: 60 },
+  { label: '2 giờ', value: 120 },
+];
 
 export default function SettingsPage() {
   const clearAllData = useTaskStore((s) => s.clearAllData);
   const fontScale = useSettingsStore((s) => s.fontScale);
   const tickSoundEnabled = useSettingsStore((s) => s.tickSoundEnabled);
   const voiceEnabled = useSettingsStore((s) => s.voiceEnabled);
+  const timezone = useSettingsStore((s) => s.timezone);
+  const notificationSettings = useSettingsStore((s) => s.notificationSettings);
   const setFontScale = useSettingsStore((s) => s.setFontScale);
   const setTickSound = useSettingsStore((s) => s.setTickSound);
   const setVoiceEnabled = useSettingsStore((s) => s.setVoiceEnabled);
+  const setTimezone = useSettingsStore((s) => s.setTimezone);
+  const setNotificationSettings = useSettingsStore((s) => s.setNotificationSettings);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
@@ -34,6 +62,17 @@ export default function SettingsPage() {
     logout();
   };
 
+  const handleEnableNotifications = async () => {
+    const granted = await requestNotificationPermission();
+    if (granted) {
+      setNotificationSettings({ enabled: true });
+    } else {
+      alert('Bạn đã từ chối quyền thông báo. Vui lòng bật lại trong cài đặt trình duyệt.');
+    }
+  };
+
+  const notifGranted = canSendNotification();
+
   return (
     <div className="flex flex-col h-full px-4 pt-4 pb-24 overflow-y-auto">
       <h1 className="text-xl font-bold text-[var(--text-primary)] mb-6">Cài đặt</h1>
@@ -56,6 +95,80 @@ export default function SettingsPage() {
             Đăng xuất
           </button>
         </div>
+      </div>
+
+      {/* Timezone */}
+      <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-3">
+        <div className="flex items-center gap-2.5 mb-3">
+          <Globe size={18} className="text-[var(--accent-primary)]" />
+          <span className="text-sm font-medium text-[var(--text-primary)]">Múi giờ</span>
+        </div>
+        <select
+          value={timezone}
+          onChange={(e) => setTimezone(e.target.value)}
+          className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[44px] appearance-none"
+        >
+          {TIMEZONES.map(tz => (
+            <option key={tz.value} value={tz.value}>{tz.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Notifications */}
+      <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-3">
+        <div className="flex items-center gap-2.5 mb-3">
+          <Bell size={18} className="text-[var(--accent-primary)]" />
+          <span className="text-sm font-medium text-[var(--text-primary)]">Thông báo đẩy</span>
+        </div>
+
+        {!notifGranted ? (
+          <button
+            onClick={handleEnableNotifications}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium text-[var(--bg-base)] bg-[var(--accent-primary)] active:opacity-80 min-h-[44px]"
+          >
+            <Bell size={16} />
+            Bật thông báo đẩy
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-[var(--text-secondary)]">Thông báo deadline</span>
+              <button
+                onClick={() => setNotificationSettings({ enabled: !notificationSettings.enabled })}
+                className={`w-12 h-7 rounded-full transition-colors relative ${
+                  notificationSettings.enabled ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-surface)]'
+                }`}
+              >
+                <div className={`size-5 rounded-full bg-white absolute top-1 transition-transform ${
+                  notificationSettings.enabled ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+
+            {notificationSettings.enabled && (
+              <>
+                <div>
+                  <p className="text-xs text-[var(--text-muted)] mb-1.5">Nhắc trước deadline</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {NOTIFY_BEFORE_OPTIONS.map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setNotificationSettings({ beforeDeadline: opt.value })}
+                        className={`px-3 py-2 rounded-lg text-[11px] font-medium min-h-[36px] transition-colors ${
+                          notificationSettings.beforeDeadline === opt.value
+                            ? 'bg-[rgba(0,229,204,0.15)] text-[var(--accent-primary)] border border-[var(--border-accent)]'
+                            : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-transparent'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Font size */}
@@ -90,7 +203,6 @@ export default function SettingsPage() {
           >
             <Minus size={16} />
           </button>
-          {/* Preview text */}
           <p className="text-[var(--text-primary)] font-medium transition-all" style={{ fontSize: `${16 * fontScale}px` }}>
             Xem trước
           </p>

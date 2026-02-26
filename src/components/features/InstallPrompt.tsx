@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Download } from 'lucide-react';
+import { requestNotificationPermission } from '@/lib/notifications';
 
 export function InstallPrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
@@ -17,7 +18,6 @@ export function InstallPrompt() {
 
     window.addEventListener('beforeinstallprompt', handler);
 
-    // Show anyway after 1.5s if no native prompt
     const timer = setTimeout(() => {
       if (!deferredPrompt) {
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
@@ -38,6 +38,8 @@ export function InstallPrompt() {
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
     }
+    // Also request notification permission on install
+    await requestNotificationPermission();
     setShowPrompt(false);
     sessionStorage.setItem('taskflow_install_dismissed', '1');
   };
@@ -71,7 +73,7 @@ export function InstallPrompt() {
           </button>
         </div>
         <p className="text-sm text-[var(--text-secondary)] mb-4">
-          Cài app để sử dụng nhanh hơn, hoạt động offline và nhận thông báo nhắc việc.
+          Cài app để sử dụng nhanh hơn, nhận thông báo đẩy khi deadline sắp đến dù đang tắt màn hình.
         </p>
         <div className="flex gap-3">
           <button

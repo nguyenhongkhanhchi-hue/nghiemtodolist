@@ -1,14 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { useTaskStore } from '@/stores';
+import { useTaskStore, useSettingsStore } from '@/stores';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { Plus, Mic, MicOff, X, Calendar, Flag, RotateCcw, ChevronDown } from 'lucide-react';
-import type { Priority, RecurringConfig, RecurringType } from '@/types';
+import { Plus, Mic, MicOff, X, Calendar, RotateCcw, ChevronDown, Clock } from 'lucide-react';
+import type { EisenhowerQuadrant, RecurringConfig, RecurringType } from '@/types';
 
-const PRIORITY_CONFIG: { value: Priority; label: string; color: string }[] = [
-  { value: 'low', label: 'Thấp', color: 'var(--text-muted)' },
-  { value: 'medium', label: 'Trung bình', color: 'var(--accent-primary)' },
-  { value: 'high', label: 'Cao', color: 'var(--warning)' },
-  { value: 'urgent', label: 'Khẩn cấp', color: 'var(--error)' },
+const QUADRANT_CONFIG: { value: EisenhowerQuadrant; label: string; short: string; color: string; icon: string }[] = [
+  { value: 'do_first', label: 'Làm ngay', short: 'Q1', color: 'var(--error)', icon: '🔴' },
+  { value: 'schedule', label: 'Lên lịch', short: 'Q2', color: 'var(--accent-primary)', icon: '🔵' },
+  { value: 'delegate', label: 'Ủy thác', short: 'Q3', color: 'var(--warning)', icon: '🟡' },
+  { value: 'eliminate', label: 'Loại bỏ', short: 'Q4', color: 'var(--text-muted)', icon: '⚪' },
 ];
 
 const RECURRING_OPTIONS: { value: RecurringType; label: string }[] = [
@@ -21,16 +21,26 @@ const RECURRING_OPTIONS: { value: RecurringType; label: string }[] = [
 
 const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
+const QUICK_DEADLINES = [
+  { label: 'Hôm nay', hours: 0, setEndOfDay: true },
+  { label: '+1 giờ', hours: 1 },
+  { label: '+3 giờ', hours: 3 },
+  { label: 'Ngày mai', hours: 24 },
+  { label: 'Tuần sau', hours: 168 },
+];
+
 export function AddTaskInput() {
   const [value, setValue] = useState('');
   const [showInput, setShowInput] = useState(false);
   const [showMore, setShowMore] = useState(false);
-  const [priority, setPriority] = useState<Priority>('medium');
-  const [deadlineStr, setDeadlineStr] = useState('');
+  const [quadrant, setQuadrant] = useState<EisenhowerQuadrant>('do_first');
+  const [deadlineDate, setDeadlineDate] = useState('');
+  const [deadlineTime, setDeadlineTime] = useState('');
   const [recurringType, setRecurringType] = useState<RecurringType>('none');
   const [customDays, setCustomDays] = useState<number[]>([]);
 
   const addTask = useTaskStore((s) => s.addTask);
+  const timezone = useSettingsStore((s) => s.timezone);
   const inputRef = useRef<HTMLInputElement>(null);
   const { isListening, transcript, startListening, stopListening, resetTranscript, isSupported } = useSpeechRecognition();
 
@@ -47,8 +57,10 @@ export function AddTaskInput() {
     if (!trimmed) return;
 
     let deadline: number | undefined;
-    if (deadlineStr) {
-      deadline = new Date(deadlineStr).getTime();
+    if (deadlineDate) {
+      const timeStr = deadlineTime || '23:59';
+      const dtStr = `${deadlineDate}T${timeStr}:00`;
+      deadline = new Date(dtStr).getTime();
     }
 
     const recurring: RecurringConfig = {
@@ -57,11 +69,12 @@ export function AddTaskInput() {
       label: recurringType !== 'none' ? trimmed : undefined,
     };
 
-    addTask(trimmed, priority, deadline, recurring);
+    addTask(trimmed, quadrant, deadline, recurring, deadlineDate, deadlineTime);
     setValue('');
     resetTranscript();
-    setPriority('medium');
-    setDeadlineStr('');
+    setQuadrant('do_first');
+    setDeadlineDate('');
+    setDeadlineTime('');
     setRecurringType('none');
     setCustomDays([]);
     setShowMore(false);
@@ -82,11 +95,21 @@ export function AddTaskInput() {
     );
   };
 
-  // Get minimum datetime for deadline (now)
-  const getMinDatetime = () => {
+  const applyQuickDeadline = (item: typeof QUICK_DEADLINES[number]) => {
     const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    return now.toISOString().slice(0, 16);
+    let target: Date;
+    if (item.setEndOfDay) {
+      target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59);
+    } else {
+      target = new Date(now.getTime() + item.hours * 3600000);
+    }
+    setDeadlineDate(`${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`);
+    setDeadlineTime(`${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`);
+  };
+
+  const getMinDate = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   };
 
   if (!showInput) {
@@ -167,26 +190,33 @@ export function AddTaskInput() {
         {/* Expanded options */}
         {showMore && (
           <div className="space-y-3 pt-2 border-t border-[var(--border-subtle)] animate-slide-up">
-            {/* Priority */}
+            {/* Eisenhower Quadrant */}
             <div>
               <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] mb-1.5">
-                <Flag size={12} /> Ưu tiên
+                Ma trận Eisenhower
               </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {PRIORITY_CONFIG.map(({ value: pv, label, color }) => (
+              <div className="grid grid-cols-2 gap-1.5">
+                {QUADRANT_CONFIG.map(({ value: qv, label, icon, color }) => (
                   <button
-                    key={pv}
-                    onClick={() => setPriority(pv)}
-                    className={`py-2 rounded-lg text-[11px] font-medium min-h-[36px] transition-colors border ${
-                      priority === pv
+                    key={qv}
+                    onClick={() => setQuadrant(qv)}
+                    className={`py-2.5 rounded-lg text-[11px] font-medium min-h-[40px] transition-colors border flex items-center justify-center gap-1.5 ${
+                      quadrant === qv
                         ? 'border-current'
                         : 'border-transparent bg-[var(--bg-surface)]'
                     }`}
-                    style={priority === pv ? { color, backgroundColor: `${color}15` } : {}}
+                    style={quadrant === qv ? { color, backgroundColor: `${color}15` } : {}}
                   >
+                    <span>{icon}</span>
                     {label}
                   </button>
                 ))}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 mt-1 text-[9px] text-[var(--text-muted)]">
+                <div className="text-center">Gấp + Quan trọng</div>
+                <div className="text-center">Quan trọng</div>
+                <div className="text-center">Gấp</div>
+                <div className="text-center">Không gấp, không QT</div>
               </div>
             </div>
 
@@ -195,13 +225,44 @@ export function AddTaskInput() {
               <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] mb-1.5">
                 <Calendar size={12} /> Hạn chót
               </label>
-              <input
-                type="datetime-local"
-                value={deadlineStr}
-                onChange={(e) => setDeadlineStr(e.target.value)}
-                min={getMinDatetime()}
-                className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-2.5 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[40px]"
-              />
+              {/* Quick picks */}
+              <div className="flex gap-1.5 mb-2 overflow-x-auto pb-1">
+                {QUICK_DEADLINES.map((qd) => (
+                  <button
+                    key={qd.label}
+                    onClick={() => applyQuickDeadline(qd)}
+                    className="flex-shrink-0 px-2.5 py-1.5 rounded-lg text-[10px] font-medium bg-[var(--bg-surface)] text-[var(--text-secondary)] active:bg-[var(--accent-dim)] active:text-[var(--accent-primary)] transition-colors min-h-[32px]"
+                  >
+                    {qd.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={deadlineDate}
+                  onChange={(e) => setDeadlineDate(e.target.value)}
+                  min={getMinDate()}
+                  className="flex-1 bg-[var(--bg-surface)] rounded-xl px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[40px]"
+                />
+                <div className="relative flex-1">
+                  <Clock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                  <input
+                    type="time"
+                    value={deadlineTime}
+                    onChange={(e) => setDeadlineTime(e.target.value)}
+                    className="w-full bg-[var(--bg-surface)] rounded-xl pl-9 pr-3 py-2.5 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[40px]"
+                  />
+                </div>
+              </div>
+              {deadlineDate && (
+                <button
+                  onClick={() => { setDeadlineDate(''); setDeadlineTime(''); }}
+                  className="mt-1 text-[10px] text-[var(--error)] active:opacity-70"
+                >
+                  Xóa hạn chót
+                </button>
+              )}
             </div>
 
             {/* Recurring */}
@@ -225,7 +286,6 @@ export function AddTaskInput() {
                 ))}
               </div>
 
-              {/* Custom days selector */}
               {recurringType === 'custom' && (
                 <div className="flex gap-1.5 mt-2">
                   {DAY_LABELS.map((label, idx) => (

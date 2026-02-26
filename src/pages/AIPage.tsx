@@ -3,6 +3,7 @@ import { useChatStore, useTaskStore, useSettingsStore } from '@/stores';
 import { streamAIChat, parseAIResponse, type AIAction } from '@/lib/aiService';
 import { Send, Bot, User, Trash2, Sparkles, Zap, Mic, MicOff } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import type { EisenhowerQuadrant } from '@/types';
 
 function ActionBadge({ action, result }: { action: AIAction; result: string }) {
   const icons: Record<string, string> = {
@@ -60,8 +61,9 @@ export default function AIPage() {
       case 'ADD_TASK': {
         const title = action.title || '';
         if (!title) return '⚠️ Thiếu tên việc';
-        addTask(title, (action.priority as any) || 'medium', undefined, action.recurring ? { type: 'daily' } : { type: 'none' });
-        return `Đã thêm "${title}"${action.recurring ? ' (lặp lại)' : ''}`;
+        const quadrant = (action.quadrant as EisenhowerQuadrant) || 'do_first';
+        addTask(title, quadrant, undefined, action.recurring ? { type: 'daily' } : { type: 'none' });
+        return `Đã thêm "${title}" [${quadrant}]${action.recurring ? ' (lặp lại)' : ''}`;
       }
       case 'COMPLETE_TASK': {
         const search = (action.search || '').toLowerCase();
@@ -108,9 +110,9 @@ export default function AIPage() {
       }
       case 'NAVIGATE': {
         const page = action.page as any;
-        if (['tasks', 'stats', 'settings'].includes(page)) {
+        if (['tasks', 'stats', 'settings', 'achievements'].includes(page)) {
           setCurrentPage(page);
-          const labels: Record<string, string> = { tasks: 'Việc', stats: 'Thống kê', settings: 'Cài đặt' };
+          const labels: Record<string, string> = { tasks: 'Việc', stats: 'Thống kê', settings: 'Cài đặt', achievements: 'Thành tích' };
           return `Đã chuyển sang trang ${labels[page] || page}`;
         }
         return `⚠️ Trang "${action.page}" không tồn tại`;
@@ -133,7 +135,7 @@ export default function AIPage() {
     isStreamingRef.current = true;
 
     const taskContext = {
-      pending: tasks.filter(t => t.status === 'pending').map(t => ({ id: t.id, title: t.title, priority: t.priority, deadline: t.deadline, recurring: t.recurring })),
+      pending: tasks.filter(t => t.status === 'pending').map(t => ({ id: t.id, title: t.title, quadrant: t.quadrant, deadline: t.deadline, recurring: t.recurring })),
       inProgress: tasks.filter(t => t.status === 'in_progress').map(t => ({ id: t.id, title: t.title })),
       done: tasks.filter(t => t.status === 'done').slice(0, 10).map(t => ({ id: t.id, title: t.title, duration: t.duration })),
       overdue: tasks.filter(t => t.status === 'overdue').map(t => ({ id: t.id, title: t.title })),
@@ -183,10 +185,10 @@ export default function AIPage() {
   };
 
   const suggestions = [
-    { text: 'Thêm 3 việc cho buổi sáng', icon: '📋' },
-    { text: 'Gợi ý cách quản lý thời gian', icon: '⏰' },
+    { text: 'Thêm 3 việc Q1 cho buổi sáng', icon: '🔴' },
+    { text: 'Gợi ý cách ưu tiên Eisenhower', icon: '📊' },
     { text: 'Hoàn thành tất cả việc', icon: '✅' },
-    { text: 'Tạo kế hoạch cho ngày mai', icon: '📅' },
+    { text: 'Thiết lập phần thưởng cho tôi', icon: '🎁' },
   ];
 
   const pendingCount = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
@@ -205,7 +207,7 @@ export default function AIPage() {
           </div>
           <div>
             <h1 className="text-base font-bold text-[var(--text-primary)]">Trợ lý AI</h1>
-            <p className="text-[10px] text-[var(--text-muted)]">Gemini 3 Flash • Thao tác thông minh</p>
+            <p className="text-[10px] text-[var(--text-muted)]">Gemini 3 Flash • Eisenhower</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -231,7 +233,7 @@ export default function AIPage() {
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,229,204,0.05)] border border-[rgba(0,229,204,0.1)]">
             <Zap size={14} className="text-[var(--accent-primary)] flex-shrink-0" />
             <p className="text-[11px] text-[var(--text-secondary)]">
-              Có thể thêm/hoàn thành/xóa việc, bấm giờ, chuyển trang — chỉ cần nói
+              Thêm/hoàn thành/xóa việc, bấm giờ, thiết lập phần thưởng — chỉ cần nói
             </p>
           </div>
         </div>

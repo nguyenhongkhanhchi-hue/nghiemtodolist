@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { useSettingsStore, useAuthStore, useTaskStore, useChatStore } from '@/stores';
+import { useEffect } from 'react';
+import { useSettingsStore, useAuthStore, useTaskStore, useChatStore, useGamificationStore } from '@/stores';
 import { supabase } from '@/lib/supabase';
+import { checkDeadlineNotifications } from '@/lib/notifications';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { InstallPrompt } from '@/components/features/InstallPrompt';
 import { TaskTimer } from '@/components/features/TaskTimer';
@@ -8,17 +9,23 @@ import TasksPage from '@/pages/TasksPage';
 import StatsPage from '@/pages/StatsPage';
 import AIPage from '@/pages/AIPage';
 import SettingsPage from '@/pages/SettingsPage';
+import AchievementsPage from '@/pages/AchievementsPage';
 import AuthPage from '@/pages/AuthPage';
 
 export default function App() {
   const currentPage = useSettingsStore((s) => s.currentPage);
   const fontScale = useSettingsStore((s) => s.fontScale);
+  const timezone = useSettingsStore((s) => s.timezone);
+  const notificationSettings = useSettingsStore((s) => s.notificationSettings);
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const setUser = useAuthStore((s) => s.setUser);
   const setLoading = useAuthStore((s) => s.setLoading);
   const initTasks = useTaskStore((s) => s.initForUser);
   const initChat = useChatStore((s) => s.initForUser);
+  const initGamification = useGamificationStore((s) => s.initForUser);
+  const tasks = useTaskStore((s) => s.tasks);
+  const markOverdue = useTaskStore((s) => s.markOverdue);
 
   // Apply font scale on mount and when it changes
   useEffect(() => {
@@ -88,8 +95,27 @@ export default function App() {
       const userId = user.id === 'guest' ? undefined : user.id;
       initTasks(userId);
       initChat(userId);
+      initGamification(userId);
     }
   }, [user?.id]);
+
+  // Real-time overdue check + deadline notifications every 30 seconds
+  useEffect(() => {
+    if (!user) return;
+
+    const notifiedSet = new Set<string>();
+
+    const check = () => {
+      markOverdue();
+      if (notificationSettings.enabled) {
+        checkDeadlineNotifications(tasks, timezone, notificationSettings.beforeDeadline, notifiedSet);
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 30000);
+    return () => clearInterval(interval);
+  }, [user?.id, tasks.length, timezone, notificationSettings.enabled, notificationSettings.beforeDeadline]);
 
   // Loading screen
   if (isLoading) {
@@ -114,6 +140,7 @@ export default function App() {
     switch (currentPage) {
       case 'tasks': return <TasksPage />;
       case 'stats': return <StatsPage />;
+      case 'achievements': return <AchievementsPage />;
       case 'ai': return <AIPage />;
       case 'settings': return <SettingsPage />;
       default: return <TasksPage />;

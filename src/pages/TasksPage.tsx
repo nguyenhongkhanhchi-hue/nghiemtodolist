@@ -1,27 +1,21 @@
-import { useEffect } from 'react';
-import { useTaskStore } from '@/stores';
+import { useTaskStore, useSettingsStore } from '@/stores';
 import { TaskList } from '@/components/features/TaskList';
 import { AddTaskInput } from '@/components/features/AddTaskInput';
 import { CalendarDays, Flame } from 'lucide-react';
+import { getNowInTimezone } from '@/lib/notifications';
 
 export default function TasksPage() {
   const timer = useTaskStore((s) => s.timer);
-  const markOverdue = useTaskStore((s) => s.markOverdue);
   const tasks = useTaskStore((s) => s.tasks);
+  const timezone = useSettingsStore((s) => s.timezone);
   const pendingCount = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
   const inProgressCount = tasks.filter(t => t.status === 'in_progress').length;
+  const overdueCount = tasks.filter(t => t.status === 'overdue').length;
 
-  useEffect(() => {
-    markOverdue();
-    // Check overdue every minute
-    const interval = setInterval(markOverdue, 60000);
-    return () => clearInterval(interval);
-  }, [markOverdue]);
-
-  const today = new Date();
+  const now = getNowInTimezone(timezone);
   const dayNames = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
-  const dayName = dayNames[today.getDay()];
-  const dateStr = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
+  const dayName = dayNames[now.getDay()];
+  const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
 
   const hasTimer = timer.isRunning || timer.isPaused;
 
@@ -34,17 +28,21 @@ export default function TasksPage() {
           <h1 className="text-xl font-bold text-[var(--text-primary)]">{dateStr}</h1>
         </div>
         <div className="flex items-center gap-2">
+          {overdueCount > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(248,113,113,0.1)] border border-[rgba(248,113,113,0.2)]">
+              <span className="text-sm font-semibold text-[var(--error)] tabular-nums">{overdueCount}</span>
+              <span className="text-xs text-[var(--text-muted)]">quá hạn</span>
+            </div>
+          )}
           {inProgressCount > 0 && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(251,191,36,0.1)] border border-[rgba(251,191,36,0.2)]">
               <Flame size={14} className="text-[var(--warning)]" />
               <span className="text-sm font-semibold text-[var(--warning)] tabular-nums">{inProgressCount}</span>
-              <span className="text-xs text-[var(--text-muted)]">đang làm</span>
             </div>
           )}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-elevated)]">
             <CalendarDays size={14} className="text-[var(--accent-primary)]" />
             <span className="text-sm font-semibold text-[var(--accent-primary)] tabular-nums">{pendingCount}</span>
-            <span className="text-xs text-[var(--text-muted)]">việc</span>
           </div>
         </div>
       </div>

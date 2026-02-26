@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { Task } from '@/types';
 
 interface TaskContext {
-  pending: Pick<Task, 'id' | 'title' | 'priority' | 'deadline' | 'recurring'>[];
+  pending: Pick<Task, 'id' | 'title' | 'quadrant' | 'deadline' | 'recurring'>[];
   done: Pick<Task, 'id' | 'title' | 'duration'>[];
   overdue: Pick<Task, 'id' | 'title'>[];
   inProgress: Pick<Task, 'id' | 'title'>[];
@@ -23,7 +23,7 @@ export interface AIAction {
   search?: string;
   page?: string;
   recurring?: boolean;
-  priority?: string;
+  quadrant?: string;
 }
 
 export function parseAIResponse(content: string): { text: string; actions: AIAction[] } {

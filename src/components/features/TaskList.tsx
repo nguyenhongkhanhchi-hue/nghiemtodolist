@@ -1,24 +1,18 @@
 import { useCallback, useState } from 'react';
-import { useTaskStore } from '@/stores';
+import { useTaskStore, useSettingsStore } from '@/stores';
 import { useSwipeGesture } from '@/hooks/useSwipeGesture';
+import { formatTimeRemaining, formatDeadlineDisplay } from '@/lib/notifications';
 import {
   Play, CheckCircle2, GripVertical, RotateCcw, Trash2, Undo2,
-  Flag, Clock, Calendar, AlertTriangle, ChevronDown, ChevronUp, Pencil,
+  Clock, Calendar, AlertTriangle, ChevronDown,
 } from 'lucide-react';
-import type { Task, TabType, Priority } from '@/types';
+import type { Task, TabType, EisenhowerQuadrant } from '@/types';
 
-const PRIORITY_COLORS: Record<Priority, string> = {
-  low: 'var(--text-muted)',
-  medium: 'var(--accent-primary)',
-  high: 'var(--warning)',
-  urgent: 'var(--error)',
-};
-
-const PRIORITY_LABELS: Record<Priority, string> = {
-  low: 'Thấp',
-  medium: 'TB',
-  high: 'Cao',
-  urgent: 'Khẩn',
+const QUADRANT_CONFIG: Record<EisenhowerQuadrant, { label: string; color: string; icon: string; short: string }> = {
+  do_first: { label: 'Làm ngay', color: 'var(--error)', icon: '🔴', short: 'Q1' },
+  schedule: { label: 'Lên lịch', color: 'var(--accent-primary)', icon: '🔵', short: 'Q2' },
+  delegate: { label: 'Ủy thác', color: 'var(--warning)', icon: '🟡', short: 'Q3' },
+  eliminate: { label: 'Loại bỏ', color: 'var(--text-muted)', icon: '⚪', short: 'Q4' },
 };
 
 const RECURRING_LABELS: Record<string, string> = {
@@ -39,39 +33,23 @@ function formatDuration(secs: number) {
   return `${s}s`;
 }
 
-function formatDeadline(ts: number) {
-  const date = new Date(ts);
-  const now = new Date();
-  const diff = ts - now.getTime();
-  const isToday = date.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const isTomorrow = date.toDateString() === tomorrow.toDateString();
-
-  const time = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-  if (diff < 0) return { text: `Quá hạn`, urgent: true };
-  if (isToday) return { text: `Hôm nay ${time}`, urgent: diff < 3600000 };
-  if (isTomorrow) return { text: `Ngày mai ${time}`, urgent: false };
-  return { text: `${date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} ${time}`, urgent: false };
-}
-
 function TaskItem({ task, tab, onStartTimer }: { task: Task; tab: TabType; onStartTimer: (id: string) => void }) {
   const completeTask = useTaskStore((s) => s.completeTask);
   const restoreTask = useTaskStore((s) => s.restoreTask);
   const removeTask = useTaskStore((s) => s.removeTask);
   const timer = useTaskStore((s) => s.timer);
-  const [expanded, setExpanded] = useState(false);
+  const timezone = useSettingsStore((s) => s.timezone);
 
   const isTimerActive = (timer.taskId === task.id) && (timer.isRunning || timer.isPaused);
-  const priorityColor = PRIORITY_COLORS[task.priority];
+  const qConfig = QUADRANT_CONFIG[task.quadrant] || QUADRANT_CONFIG.do_first;
 
   const { swipeState, handlers } = useSwipeGesture({
     threshold: 80,
     onSwipeLeft: tab === 'pending' ? () => completeTask(task.id) : undefined,
   });
 
-  const deadlineInfo = task.deadline ? formatDeadline(task.deadline) : null;
+  const deadlineInfo = task.deadline ? formatTimeRemaining(task.deadline, timezone) : null;
+  const deadlineDisplay = task.deadline ? formatDeadlineDisplay(task.deadline, timezone) : null;
 
   return (
     <div
@@ -82,7 +60,6 @@ function TaskItem({ task, tab, onStartTimer }: { task: Task; tab: TabType; onSta
         transition: swipeState.isSwiping ? 'none' : 'transform 0.3s ease-out',
       }}
     >
-      {/* Swipe reveal */}
       {tab === 'pending' && (
         <div className="absolute inset-0 bg-[rgba(52,211,153,0.2)] flex items-center justify-end pr-6 rounded-xl">
           <CheckCircle2 size={24} className="text-[var(--success)]" />
@@ -95,23 +72,20 @@ function TaskItem({ task, tab, onStartTimer }: { task: Task; tab: TabType; onSta
           : 'bg-[var(--bg-elevated)] border border-[var(--border-subtle)]'
       } ${tab === 'done' ? 'opacity-70' : ''}`}>
 
-        {/* Priority indicator strip */}
-        <div className="absolute top-0 left-0 w-1 h-full rounded-l-xl" style={{ backgroundColor: priorityColor }} />
+        <div className="absolute top-0 left-0 w-1 h-full rounded-l-xl" style={{ backgroundColor: qConfig.color }} />
 
         <div className="flex items-center gap-2.5 px-4 py-3 pl-5">
-          {/* Drag handle */}
           {tab === 'pending' && (
             <div className="text-[var(--text-muted)] cursor-grab active:cursor-grabbing touch-none">
               <GripVertical size={14} />
             </div>
           )}
 
-          {/* Status indicator */}
           {tab === 'pending' && (
             <button
               onClick={() => completeTask(task.id)}
               className="size-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
-              style={{ borderColor: priorityColor }}
+              style={{ borderColor: qConfig.color }}
               aria-label="Hoàn thành"
             />
           )}
@@ -128,52 +102,57 @@ function TaskItem({ task, tab, onStartTimer }: { task: Task; tab: TabType; onSta
             </div>
           )}
 
-          {/* Task content */}
-          <div className="flex-1 min-w-0" onClick={() => setExpanded(!expanded)}>
+          <div className="flex-1 min-w-0">
             <p className={`text-sm font-medium truncate ${
               tab === 'done' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'
             }`}>
               {task.title}
             </p>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              {/* Priority badge */}
-              <span className="text-[10px] font-medium" style={{ color: priorityColor }}>
-                {PRIORITY_LABELS[task.priority]}
+              <span className="text-[10px] font-medium flex items-center gap-0.5" style={{ color: qConfig.color }}>
+                {qConfig.icon} {qConfig.label}
               </span>
 
-              {/* Recurring badge */}
               {task.recurring.type !== 'none' && (
                 <span className="flex items-center gap-0.5 text-[10px] text-[var(--info)]">
                   <RotateCcw size={9} /> {RECURRING_LABELS[task.recurring.type]}
                 </span>
               )}
 
-              {/* Deadline */}
               {deadlineInfo && (
                 <span className={`flex items-center gap-0.5 text-[10px] font-medium ${
                   deadlineInfo.urgent ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'
                 }`}>
-                  <Calendar size={9} /> {deadlineInfo.text}
+                  <Calendar size={9} /> {deadlineDisplay}
                 </span>
               )}
 
-              {/* Duration */}
+              {deadlineInfo && !deadlineInfo.overdue && (
+                <span className={`text-[10px] font-mono tabular-nums ${
+                  deadlineInfo.urgent ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'
+                }`}>
+                  ({deadlineInfo.text})
+                </span>
+              )}
+
+              {deadlineInfo && deadlineInfo.overdue && tab !== 'overdue' && (
+                <span className="text-[10px] font-medium text-[var(--error)]">
+                  {deadlineInfo.text}
+                </span>
+              )}
+
               {task.duration && task.duration > 0 && (
                 <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)] font-mono tabular-nums">
                   <Clock size={9} /> {formatDuration(task.duration)}
                 </span>
               )}
 
-              {/* In progress indicator */}
               {task.status === 'in_progress' && (
-                <span className="text-[10px] text-[var(--accent-primary)] font-medium">
-                  Đang làm
-                </span>
+                <span className="text-[10px] text-[var(--accent-primary)] font-medium">Đang làm</span>
               )}
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-1">
             {(tab === 'pending') && !isTimerActive && (
               <button
@@ -184,16 +163,7 @@ function TaskItem({ task, tab, onStartTimer }: { task: Task; tab: TabType; onSta
                 <Play size={16} fill="currentColor" />
               </button>
             )}
-            {tab === 'done' && (
-              <button
-                onClick={() => restoreTask(task.id)}
-                className="size-9 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)] active:opacity-70"
-                aria-label="Khôi phục"
-              >
-                <Undo2 size={16} />
-              </button>
-            )}
-            {tab === 'overdue' && (
+            {(tab === 'done' || tab === 'overdue') && (
               <button
                 onClick={() => restoreTask(task.id)}
                 className="size-9 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)] active:opacity-70"
@@ -224,21 +194,25 @@ export function TaskList() {
   const setActiveTab = useTaskStore((s) => s.setActiveTab);
   const startTimer = useTaskStore((s) => s.startTimer);
   const timer = useTaskStore((s) => s.timer);
+  const [quadrantFilter, setQuadrantFilter] = useState<EisenhowerQuadrant | 'all'>('all');
 
   const filteredTasks = tasks
     .filter((t) => {
-      if (activeTab === 'pending') return t.status === 'pending' || t.status === 'in_progress';
+      if (activeTab === 'pending') {
+        if (t.status !== 'pending' && t.status !== 'in_progress') return false;
+        if (quadrantFilter !== 'all' && t.quadrant !== quadrantFilter) return false;
+        return true;
+      }
       if (activeTab === 'done') return t.status === 'done';
       return t.status === 'overdue';
     })
     .sort((a, b) => {
       if (activeTab === 'pending') {
-        // In progress first, then by priority, then by order
         if (a.status === 'in_progress' && b.status !== 'in_progress') return -1;
         if (b.status === 'in_progress' && a.status !== 'in_progress') return 1;
-        const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
-        const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-        if (pDiff !== 0) return pDiff;
+        const qOrder: Record<EisenhowerQuadrant, number> = { do_first: 0, schedule: 1, delegate: 2, eliminate: 3 };
+        const qDiff = qOrder[a.quadrant] - qOrder[b.quadrant];
+        if (qDiff !== 0) return qDiff;
         return a.order - b.order;
       }
       return (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt);
@@ -259,10 +233,18 @@ export function TaskList() {
     { key: 'overdue', label: 'Quá hạn', count: overdueCount },
   ];
 
+  const quadrantFilters: { key: EisenhowerQuadrant | 'all'; label: string }[] = [
+    { key: 'all', label: 'Tất cả' },
+    { key: 'do_first', label: '🔴 Q1' },
+    { key: 'schedule', label: '🔵 Q2' },
+    { key: 'delegate', label: '🟡 Q3' },
+    { key: 'eliminate', label: '⚪ Q4' },
+  ];
+
   return (
     <div className="flex flex-col h-full">
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-[var(--bg-elevated)] rounded-xl mb-4">
+      <div className="flex gap-1 p-1 bg-[var(--bg-elevated)] rounded-xl mb-3">
         {tabs.map(({ key, label, count }) => (
           <button
             key={key}
@@ -288,6 +270,25 @@ export function TaskList() {
           </button>
         ))}
       </div>
+
+      {/* Quadrant filter (only on pending tab) */}
+      {activeTab === 'pending' && pendingCount > 0 && (
+        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
+          {quadrantFilters.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setQuadrantFilter(key)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors min-h-[32px] ${
+                quadrantFilter === key
+                  ? 'bg-[rgba(0,229,204,0.15)] text-[var(--accent-primary)] border border-[var(--border-accent)]'
+                  : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-transparent'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Task list */}
       <div className="flex-1 overflow-y-auto pb-32 -mx-1 px-1">

@@ -1,91 +1,32 @@
-import { useState, useRef, useEffect } from 'react';
-import { useChatStore, useTaskStore } from '@/stores';
-import { Send, Bot, User, Trash2, Sparkles } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useChatStore, useTaskStore, useMusicStore, useSettingsStore } from '@/stores';
+import { streamAIChat, parseAIResponse, type AIAction } from '@/lib/aiService';
+import { Send, Bot, User, Trash2, Sparkles, Zap, CheckCircle2, AlertCircle, Mic, MicOff } from 'lucide-react';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 
-const GEMINI_SYSTEM = `Bạn là TaskFlow AI - trợ lý thông minh quản lý công việc. Bạn có thể:
-- Thêm việc mới (trả lời bắt đầu bằng [ADD_TASK:tên việc])
-- Hoàn thành việc (trả lời bắt đầu bằng [COMPLETE_TASK:tên việc])
-- Xóa việc (trả lời bắt đầu bằng [DELETE_TASK:tên việc])
-- Gợi ý cách quản lý thời gian
-- Trả lời mọi câu hỏi bằng tiếng Việt
-Luôn thân thiện, ngắn gọn, hữu ích.`;
+function ActionBadge({ action, result }: { action: AIAction; result: string }) {
+  const icons: Record<string, string> = {
+    ADD_TASK: '➕',
+    COMPLETE_TASK: '✅',
+    DELETE_TASK: '🗑️',
+    RESTORE_TASK: '↩️',
+    START_TIMER: '⏱️',
+    ADD_MUSIC: '🎵',
+    NAVIGATE: '📍',
+  };
 
-function processAICommands(content: string, tasks: any[], addTask: any, completeTask: any, removeTask: any): string {
-  let displayContent = content;
+  const isError = result.startsWith('⚠️');
 
-  const addMatch = content.match(/\[ADD_TASK:(.+?)\]/g);
-  if (addMatch) {
-    addMatch.forEach(match => {
-      const taskName = match.replace('[ADD_TASK:', '').replace(']', '');
-      addTask(taskName);
-      displayContent = displayContent.replace(match, `✅ Đã thêm: "${taskName}"`);
-    });
-  }
-
-  const completeMatch = content.match(/\[COMPLETE_TASK:(.+?)\]/g);
-  if (completeMatch) {
-    completeMatch.forEach(match => {
-      const taskName = match.replace('[COMPLETE_TASK:', '').replace(']', '').toLowerCase();
-      const task = tasks.find(t => t.status === 'pending' && t.title.toLowerCase().includes(taskName));
-      if (task) {
-        completeTask(task.id);
-        displayContent = displayContent.replace(match, `✅ Đã hoàn thành: "${task.title}"`);
-      } else {
-        displayContent = displayContent.replace(match, `⚠️ Không tìm thấy việc: "${taskName}"`);
-      }
-    });
-  }
-
-  const deleteMatch = content.match(/\[DELETE_TASK:(.+?)\]/g);
-  if (deleteMatch) {
-    deleteMatch.forEach(match => {
-      const taskName = match.replace('[DELETE_TASK:', '').replace(']', '').toLowerCase();
-      const task = tasks.find(t => t.title.toLowerCase().includes(taskName));
-      if (task) {
-        removeTask(task.id);
-        displayContent = displayContent.replace(match, `🗑️ Đã xóa: "${task.title}"`);
-      } else {
-        displayContent = displayContent.replace(match, `⚠️ Không tìm thấy việc: "${taskName}"`);
-      }
-    });
-  }
-
-  return displayContent;
-}
-
-async function callGemini(messages: { role: string; content: string }[], apiKey: string, tasks: any[]): Promise<string> {
-  const taskList = tasks.filter(t => t.status === 'pending').map(t => t.title).join(', ');
-  const systemMsg = GEMINI_SYSTEM + `\nDanh sách việc hiện tại: ${taskList || 'Trống'}`;
-
-  const contents = messages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }]
-  }));
-
-  contents.unshift({
-    role: 'user',
-    parts: [{ text: systemMsg }]
-  });
-
-  if (contents.length > 1 && contents[0].role === contents[1].role) {
-    contents.splice(1, 0, { role: 'model', parts: [{ text: 'Tôi hiểu. Tôi sẵn sàng giúp bạn quản lý công việc!' }] });
-  }
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents }),
-    }
+  return (
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+      isError
+        ? 'bg-[rgba(248,113,113,0.1)] border border-[rgba(248,113,113,0.15)]'
+        : 'bg-[rgba(0,229,204,0.06)] border border-[rgba(0,229,204,0.12)]'
+    }`}>
+      <span className="text-sm">{icons[action.type] || '⚡'}</span>
+      <span className={isError ? 'text-[var(--error)]' : 'text-[var(--text-secondary)]'}>{result}</span>
+    </div>
   );
-
-  if (!response.ok) {
-    throw new Error('Lỗi kết nối Gemini API');
-  }
-
-  const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Xin lỗi, tôi không hiểu yêu cầu.';
 }
 
 export default function AIPage() {
@@ -94,185 +35,366 @@ export default function AIPage() {
   const addTask = useTaskStore((s) => s.addTask);
   const completeTask = useTaskStore((s) => s.completeTask);
   const removeTask = useTaskStore((s) => s.removeTask);
+  const restoreTask = useTaskStore((s) => s.restoreTask);
+  const startTimer = useTaskStore((s) => s.startTimer);
+  const timer = useTaskStore((s) => s.timer);
+  const addTrack = useMusicStore((s) => s.addTrack);
+  const musicTracks = useMusicStore((s) => s.tracks);
+  const setCurrentPage = useSettingsStore((s) => s.setCurrentPage);
 
   const [input, setInput] = useState('');
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('taskflow_gemini_key') || '');
-  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [actionResults, setActionResults] = useState<{ action: AIAction; result: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isStreamingRef = useRef(false);
+
+  const { isListening, transcript, startListening, stopListening, resetTranscript, isSupported } = useSpeechRecognition();
+
+  useEffect(() => {
+    if (transcript) {
+      setInput(transcript);
+    }
+  }, [transcript]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, streamingContent, actionResults]);
+
+  const executeAction = useCallback((action: AIAction): string => {
+    switch (action.type) {
+      case 'ADD_TASK': {
+        const title = action.title || '';
+        if (!title) return '⚠️ Thiếu tên việc';
+        addTask(title, action.recurring || false, action.recurring ? title : undefined);
+        return `Đã thêm "${title}"${action.recurring ? ' (lặp lại)' : ''}`;
+      }
+
+      case 'COMPLETE_TASK': {
+        const search = (action.search || '').toLowerCase();
+        const task = tasks.find(t =>
+          t.status === 'pending' && t.title.toLowerCase().includes(search)
+        );
+        if (task) {
+          completeTask(task.id);
+          return `Đã hoàn thành "${task.title}"`;
+        }
+        return `⚠️ Không tìm thấy việc "${action.search}"`;
+      }
+
+      case 'DELETE_TASK': {
+        const search = (action.search || '').toLowerCase();
+        const task = tasks.find(t => t.title.toLowerCase().includes(search));
+        if (task) {
+          removeTask(task.id);
+          return `Đã xóa "${task.title}"`;
+        }
+        return `⚠️ Không tìm thấy việc "${action.search}"`;
+      }
+
+      case 'RESTORE_TASK': {
+        const search = (action.search || '').toLowerCase();
+        const task = tasks.find(t =>
+          (t.status === 'done' || t.status === 'overdue') && t.title.toLowerCase().includes(search)
+        );
+        if (task) {
+          restoreTask(task.id);
+          return `Đã khôi phục "${task.title}"`;
+        }
+        return `⚠️ Không tìm thấy việc "${action.search}"`;
+      }
+
+      case 'START_TIMER': {
+        if (timer.isRunning) return '⚠️ Timer đang chạy, hãy dừng trước';
+        const search = (action.search || '').toLowerCase();
+        const task = tasks.find(t =>
+          t.status === 'pending' && t.title.toLowerCase().includes(search)
+        );
+        if (task) {
+          startTimer(task.id);
+          return `Đang đếm giờ cho "${task.title}"`;
+        }
+        return `⚠️ Không tìm thấy việc "${action.search}"`;
+      }
+
+      case 'ADD_MUSIC': {
+        const title = action.title || 'Không rõ tên';
+        const url = action.url || '';
+        if (!url) return '⚠️ Thiếu link nhạc';
+        addTrack(title, url);
+        return `Đã thêm nhạc "${title}"`;
+      }
+
+      case 'NAVIGATE': {
+        const page = action.page as any;
+        if (['tasks', 'stats', 'music', 'settings'].includes(page)) {
+          setCurrentPage(page);
+          const labels: Record<string, string> = { tasks: 'Việc', stats: 'Thống kê', music: 'Nhạc', settings: 'Cài đặt' };
+          return `Đã chuyển sang trang ${labels[page] || page}`;
+        }
+        return `⚠️ Trang "${action.page}" không tồn tại`;
+      }
+
+      default:
+        return '⚠️ Lệnh không được hỗ trợ';
+    }
+  }, [tasks, timer, addTask, completeTask, removeTask, restoreTask, startTimer, addTrack, setCurrentPage]);
 
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
-
-    if (!apiKey) {
-      setShowKeyInput(true);
-      return;
-    }
+    if (!trimmed || isLoading || isStreamingRef.current) return;
 
     addMessage('user', trimmed);
     setInput('');
+    resetTranscript();
     setLoading(true);
+    setStreamingContent('');
+    setActionResults([]);
+    isStreamingRef.current = true;
 
-    const allMessages = [...messages.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: trimmed }];
+    // Build task context for the AI
+    const taskContext = {
+      pending: tasks.filter(t => t.status === 'pending').map(t => ({ id: t.id, title: t.title, isRecurring: t.isRecurring })),
+      done: tasks.filter(t => t.status === 'done').slice(0, 10).map(t => ({ id: t.id, title: t.title, duration: t.duration })),
+      overdue: tasks.filter(t => t.status === 'overdue').map(t => ({ id: t.id, title: t.title })),
+      timerRunning: timer.isRunning,
+      timerTask: tasks.find(t => t.id === timer.taskId)?.title,
+      musicTracks: musicTracks.map(t => ({ title: t.title })),
+    };
 
-    try {
-      const response = await callGemini(allMessages, apiKey, tasks);
-      const processed = processAICommands(response, tasks, addTask, completeTask, removeTask);
-      addMessage('assistant', processed);
-    } catch {
-      addMessage('assistant', 'Xin lỗi, có lỗi xảy ra. Vui lòng kiểm tra API key và thử lại.');
-    }
+    // Build conversation history (last 20 messages for context window)
+    const chatHistory = [...messages.slice(-20).map(m => ({ role: m.role, content: m.content })), { role: 'user' as const, content: trimmed }];
 
-    setLoading(false);
+    let fullContent = '';
+
+    await streamAIChat(
+      chatHistory,
+      taskContext,
+      // onChunk
+      (chunk) => {
+        fullContent += chunk;
+        setStreamingContent(fullContent);
+      },
+      // onDone
+      () => {
+        const { text, actions } = parseAIResponse(fullContent);
+
+        // Execute all actions
+        const results = actions.map(action => ({
+          action,
+          result: executeAction(action),
+        }));
+
+        setActionResults(results);
+        const actionSummary = results.map(r => r.result).join('\n');
+        const finalContent = text + (actionSummary ? '\n\n' + actionSummary : '');
+
+        addMessage('assistant', finalContent);
+        setStreamingContent('');
+        setLoading(false);
+        isStreamingRef.current = false;
+      },
+      // onError
+      (error) => {
+        addMessage('assistant', `Xin lỗi, có lỗi xảy ra: ${error}`);
+        setStreamingContent('');
+        setLoading(false);
+        isStreamingRef.current = false;
+      },
+    );
   };
 
-  const handleSaveKey = () => {
-    localStorage.setItem('taskflow_gemini_key', apiKey);
-    setShowKeyInput(false);
+  const toggleVoice = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
   };
 
   const suggestions = [
-    'Thêm việc "Họp team lúc 10h"',
-    'Danh sách việc hôm nay',
-    'Gợi ý cách quản lý thời gian',
-    'Hoàn thành tất cả việc',
+    { text: 'Thêm 3 việc cho buổi sáng', icon: '📋' },
+    { text: 'Gợi ý cách quản lý thời gian', icon: '⏰' },
+    { text: 'Hoàn thành tất cả việc', icon: '✅' },
+    { text: 'Tạo kế hoạch cho ngày mai', icon: '📅' },
   ];
+
+  const pendingCount = tasks.filter(t => t.status === 'pending').length;
+  const doneCount = tasks.filter(t => t.status === 'done').length;
+
+  // Parse streaming content for display (remove action blocks)
+  const displayStreaming = streamingContent.replace(/:::ACTION\s*\n?[\s\S]*?\n?:::END/g, '').trim();
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
         <div className="flex items-center gap-2.5">
-          <div className="size-9 rounded-xl bg-[var(--accent-dim)] flex items-center justify-center">
+          <div className="size-9 rounded-xl bg-[var(--accent-dim)] flex items-center justify-center relative">
             <Sparkles size={18} className="text-[var(--accent-primary)]" />
+            <div className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-[var(--success)] border-2 border-[var(--bg-base)]" />
           </div>
           <div>
             <h1 className="text-base font-bold text-[var(--text-primary)]">Trợ lý AI</h1>
-            <p className="text-[10px] text-[var(--text-muted)]">Gemini • Quản lý công việc</p>
+            <p className="text-[10px] text-[var(--text-muted)]">Gemini 3 Flash • Thao tác thông minh</p>
           </div>
         </div>
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => setShowKeyInput(!showKeyInput)}
-            className="px-3 py-1.5 rounded-lg text-[10px] font-medium bg-[var(--bg-elevated)] text-[var(--text-muted)] active:opacity-70"
-          >
-            API Key
-          </button>
+        <div className="flex items-center gap-1.5">
+          {/* Mini task stats */}
+          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[var(--bg-elevated)] text-[10px]">
+            <span className="text-[var(--accent-primary)] font-bold tabular-nums">{pendingCount}</span>
+            <span className="text-[var(--text-muted)]">việc</span>
+            <span className="text-[var(--text-muted)]">•</span>
+            <span className="text-[var(--success)] font-bold tabular-nums">{doneCount}</span>
+            <span className="text-[var(--text-muted)]">xong</span>
+          </div>
           <button
             onClick={clearChat}
             className="size-9 rounded-lg bg-[var(--bg-elevated)] flex items-center justify-center text-[var(--text-muted)] active:opacity-70"
-            aria-label="Xóa chat"
+            aria-label="Xóa lịch sử chat"
           >
             <Trash2 size={14} />
           </button>
         </div>
       </div>
 
-      {/* API Key input */}
-      {showKeyInput && (
-        <div className="px-4 mb-3 animate-slide-up">
-          <div className="bg-[var(--bg-elevated)] rounded-xl p-3 border border-[var(--border-accent)]">
-            <p className="text-xs text-[var(--text-secondary)] mb-2">Nhập Gemini API Key để sử dụng</p>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="AIza..."
-                className="flex-1 bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[44px]"
-              />
-              <button
-                onClick={handleSaveKey}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] active:opacity-80 min-h-[44px]"
-              >
-                Lưu
-              </button>
-            </div>
+      {/* Capabilities banner */}
+      {messages.length === 0 && (
+        <div className="px-4 mb-2">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(0,229,204,0.05)] border border-[rgba(0,229,204,0.1)]">
+            <Zap size={14} className="text-[var(--accent-primary)] flex-shrink-0" />
+            <p className="text-[11px] text-[var(--text-secondary)]">
+              Có thể thêm/hoàn thành/xóa việc, bấm giờ, thêm nhạc, chuyển trang — chỉ cần nói
+            </p>
           </div>
         </div>
       )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 pb-4">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="size-16 rounded-2xl bg-[var(--bg-elevated)] flex items-center justify-center mb-4">
+        {messages.length === 0 && !streamingContent ? (
+          <div className="flex flex-col items-center justify-center py-8">
+            <div className="size-16 rounded-2xl bg-[var(--bg-elevated)] flex items-center justify-center mb-4 relative">
               <Bot size={28} className="text-[var(--accent-primary)]" />
             </div>
-            <p className="text-sm text-[var(--text-secondary)] mb-4 text-center">
-              Xin chào! Tôi có thể giúp bạn thêm, hoàn thành, xóa việc và gợi ý cách quản lý thời gian.
+            <p className="text-sm text-[var(--text-secondary)] mb-1 text-center font-medium">
+              Tôi là trợ lý AI thông minh
             </p>
-            <div className="flex flex-wrap gap-2 justify-center">
+            <p className="text-xs text-[var(--text-muted)] mb-5 text-center px-8">
+              Hỏi bất cứ điều gì hoặc yêu cầu tôi thao tác giùm bạn
+            </p>
+            <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
               {suggestions.map((s) => (
                 <button
-                  key={s}
-                  onClick={() => setInput(s)}
-                  className="px-3 py-2 rounded-xl text-xs font-medium bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] active:opacity-70"
+                  key={s.text}
+                  onClick={() => setInput(s.text)}
+                  className="flex items-center gap-2 px-3 py-3 rounded-xl text-xs font-medium bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] active:border-[var(--border-accent)] active:bg-[var(--accent-dim)] transition-colors text-left"
                 >
-                  {s}
+                  <span className="text-base">{s.icon}</span>
+                  <span className="leading-tight">{s.text}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`flex gap-2 mb-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {msg.role === 'assistant' && (
-                <div className="size-7 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Bot size={14} className="text-[var(--accent-primary)]" />
+          <>
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex gap-2 mb-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'assistant' && (
+                  <div className="size-7 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Bot size={14} className="text-[var(--accent-primary)]" />
+                  </div>
+                )}
+                <div className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                  msg.role === 'user'
+                    ? 'bg-[var(--accent-primary)] text-[var(--bg-base)] rounded-br-md'
+                    : 'bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-bl-md border border-[var(--border-subtle)]'
+                }`}>
+                  {msg.content}
                 </div>
-              )}
-              <div className={`max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-[var(--accent-primary)] text-[var(--bg-base)] rounded-br-md'
-                  : 'bg-[var(--bg-elevated)] text-[var(--text-primary)] rounded-bl-md border border-[var(--border-subtle)]'
-              }`}>
-                {msg.content}
+                {msg.role === 'user' && (
+                  <div className="size-7 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <User size={14} className="text-[var(--text-secondary)]" />
+                  </div>
+                )}
               </div>
-              {msg.role === 'user' && (
-                <div className="size-7 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <User size={14} className="text-[var(--text-secondary)]" />
-                </div>
-              )}
-            </div>
-          ))
+            ))}
+          </>
         )}
-        {isLoading && (
+
+        {/* Streaming content */}
+        {displayStreaming && (
+          <div className="flex gap-2 mb-3 justify-start">
+            <div className="size-7 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Bot size={14} className="text-[var(--accent-primary)]" />
+            </div>
+            <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-[var(--bg-elevated)] border border-[var(--border-accent)] text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap">
+              {displayStreaming}
+              <span className="inline-block w-1.5 h-4 bg-[var(--accent-primary)] ml-0.5 animate-pulse rounded-sm" />
+            </div>
+          </div>
+        )}
+
+        {/* Action results */}
+        {actionResults.length > 0 && (
+          <div className="flex gap-2 mb-3 justify-start">
+            <div className="size-7 flex-shrink-0" />
+            <div className="space-y-1.5 max-w-[80%]">
+              {actionResults.map((r, i) => (
+                <ActionBadge key={i} action={r.action} result={r.result} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Loading indicator (before stream starts) */}
+        {isLoading && !streamingContent && (
           <div className="flex gap-2 mb-3">
             <div className="size-7 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center flex-shrink-0">
               <Bot size={14} className="text-[var(--accent-primary)]" />
             </div>
             <div className="bg-[var(--bg-elevated)] rounded-2xl rounded-bl-md px-4 py-3 border border-[var(--border-subtle)]">
-              <div className="flex gap-1">
-                <div className="size-2 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="size-2 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="size-2 rounded-full bg-[var(--text-muted)] animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="flex gap-1.5">
+                <div className="size-2 rounded-full bg-[var(--accent-primary)] animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="size-2 rounded-full bg-[var(--accent-primary)] animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="size-2 rounded-full bg-[var(--accent-primary)] animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>
         )}
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
       <div className="px-4 pb-20 pt-2 glass-strong border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2">
+          {/* Voice button */}
+          {isSupported && (
+            <button
+              onClick={toggleVoice}
+              className={`size-11 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                isListening
+                  ? 'bg-[rgba(248,113,113,0.2)] text-[var(--error)]'
+                  : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'
+              }`}
+              aria-label={isListening ? 'Dừng ghi âm' : 'Nhập giọng nói'}
+            >
+              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+          )}
+
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Nhắn tin cho trợ lý AI..."
-            className="flex-1 bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[44px]"
+            placeholder={isListening ? 'Đang nghe...' : 'Nhắn tin hoặc ra lệnh...'}
+            className="flex-1 bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[44px] transition-colors"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
-            className="size-11 rounded-xl bg-[var(--accent-primary)] flex items-center justify-center text-[var(--bg-base)] disabled:opacity-30 active:opacity-80"
+            className="size-11 rounded-xl bg-[var(--accent-primary)] flex items-center justify-center text-[var(--bg-base)] disabled:opacity-30 active:opacity-80 flex-shrink-0"
             aria-label="Gửi"
           >
             <Send size={18} />

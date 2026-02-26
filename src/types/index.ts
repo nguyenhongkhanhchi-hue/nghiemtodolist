@@ -15,6 +15,8 @@ export interface MusicTrack {
   id: string;
   title: string;
   url: string;
+  originalUrl?: string;
+  source?: 'gdrive' | 'direct';
   addedAt: number;
 }
 

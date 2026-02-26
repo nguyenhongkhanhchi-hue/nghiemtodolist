@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Task, MusicTrack, ChatMessage, TimerState, TabType, PageType } from '@/types';
+import { isGDriveLink, convertGDriveToDirectUrl } from '@/lib/driveUtils';
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -156,7 +157,16 @@ export const useMusicStore = create<MusicStore>((set, get) => ({
   isPlaying: false,
 
   addTrack: (title, url) => {
-    const track: MusicTrack = { id: generateId(), title, url, addedAt: Date.now() };
+    // Auto-convert Google Drive share links to direct streamable URLs
+    const streamUrl = isGDriveLink(url) ? convertGDriveToDirectUrl(url) : url;
+    const track: MusicTrack = {
+      id: generateId(),
+      title,
+      url: streamUrl,
+      originalUrl: url,
+      source: isGDriveLink(url) ? 'gdrive' : 'direct',
+      addedAt: Date.now(),
+    };
     const updated = [...get().tracks, track];
     saveToStorage('taskflow_music', updated);
     set({ tracks: updated });

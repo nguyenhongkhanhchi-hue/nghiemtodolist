@@ -22,7 +22,7 @@ export function exportData(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `taskflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `nghiemwork-backup-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -43,7 +43,7 @@ export async function importData(file: File): Promise<{
     const text = await file.text();
     const data = JSON.parse(text);
     if (!data.version || !data.tasks) {
-      return { error: 'File không hợp lệ. Vui lòng chọn file backup TaskFlow.' };
+      return { error: 'File không hợp lệ. Vui lòng chọn file backup NghiemWork.' };
     }
     return {
       tasks: data.tasks || [],
@@ -94,7 +94,7 @@ export function generateDailySummary(
   const incomeToday = completed.filter(t => t.finance?.type === 'income').reduce((s, t) => s + (t.finance?.amount || 0), 0);
   const expenseToday = completed.filter(t => t.finance?.type === 'expense').reduce((s, t) => s + (t.finance?.amount || 0), 0);
 
-  let summary = `=== TASKFLOW - ${dayNames[now.getDay()]} ${todayStr} ===\n\n`;
+  let summary = `=== NGHIEMWORK - ${dayNames[now.getDay()]} ${todayStr} ===\n\n`;
   summary += `Hoàn thành: ${completed.length} việc\n`;
   summary += `Tổng thời gian: ${formatTime(totalTime)}\n`;
   summary += `Còn lại: ${pending.length} việc\n`;
@@ -122,6 +122,6 @@ export function generateDailySummary(
     });
   }
 
-  summary += `\n--- TaskFlow ---`;
+  summary += `\n--- NghiemWork ---`;
   return summary;
 }

@@ -7,7 +7,7 @@ export function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
-    const dismissed = sessionStorage.getItem('taskflow_install_dismissed');
+    const dismissed = sessionStorage.getItem('nw_install_dismissed');
     if (dismissed) return;
 
     const handler = (e: Event) => {
@@ -38,15 +38,14 @@ export function InstallPrompt() {
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
     }
-    // Also request notification permission on install
     await requestNotificationPermission();
     setShowPrompt(false);
-    sessionStorage.setItem('taskflow_install_dismissed', '1');
+    sessionStorage.setItem('nw_install_dismissed', '1');
   };
 
   const handleDismiss = () => {
     setShowPrompt(false);
-    sessionStorage.setItem('taskflow_install_dismissed', '1');
+    sessionStorage.setItem('nw_install_dismissed', '1');
   };
 
   if (!showPrompt) return null;
@@ -60,15 +59,12 @@ export function InstallPrompt() {
               <Download size={20} className="text-[var(--accent-primary)]" />
             </div>
             <div>
-              <h3 className="font-semibold text-[var(--text-primary)]">Cài đặt TaskFlow</h3>
+              <h3 className="font-semibold text-[var(--text-primary)]">Cài đặt NghiemWork</h3>
               <p className="text-xs text-[var(--text-secondary)]">Thêm vào màn hình chính</p>
             </div>
           </div>
-          <button
-            onClick={handleDismiss}
-            className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-secondary)] min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Đóng"
-          >
+          <button onClick={handleDismiss}
+            className="p-1.5 rounded-lg text-[var(--text-muted)] min-w-[44px] min-h-[44px] flex items-center justify-center" aria-label="Đóng">
             <X size={18} />
           </button>
         </div>
@@ -76,16 +72,12 @@ export function InstallPrompt() {
           Cài app để sử dụng nhanh hơn, nhận thông báo đẩy khi deadline sắp đến dù đang tắt màn hình.
         </p>
         <div className="flex gap-3">
-          <button
-            onClick={handleDismiss}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-[var(--text-secondary)] bg-[var(--bg-surface)] active:opacity-70 min-h-[44px]"
-          >
+          <button onClick={handleDismiss}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-[var(--text-secondary)] bg-[var(--bg-surface)] active:opacity-70 min-h-[44px]">
             Để sau
           </button>
-          <button
-            onClick={handleInstall}
-            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] active:opacity-80 min-h-[44px]"
-          >
+          <button onClick={handleInstall}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] active:opacity-80 min-h-[44px]">
             Cài ngay
           </button>
         </div>

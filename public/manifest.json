@@ -1,7 +1,7 @@
 {
-  "name": "TaskFlow",
-  "short_name": "TaskFlow",
-  "description": "Quản lý công việc thông minh với Ma trận Eisenhower",
+  "name": "NghiemWork",
+  "short_name": "NghiemWork",
+  "description": "NghiemWork - Quản lý công việc thông minh với Ma trận Eisenhower",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0A0A0F",

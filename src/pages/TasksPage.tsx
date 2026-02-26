@@ -2,6 +2,7 @@ import { useTaskStore, useSettingsStore } from '@/stores';
 import { TaskList } from '@/components/features/TaskList';
 import { AddTaskInput } from '@/components/features/AddTaskInput';
 import { CalendarDays, Flame } from 'lucide-react';
+import type {} from '@/types';
 import { getNowInTimezone } from '@/lib/notifications';
 
 export default function TasksPage() {

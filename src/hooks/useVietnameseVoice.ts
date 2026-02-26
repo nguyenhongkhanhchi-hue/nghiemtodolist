@@ -11,6 +11,7 @@ export function useVietnameseVoice() {
     utterance.pitch = 1.2;
 
     const voices = window.speechSynthesis.getVoices();
+    // Prefer female Vietnamese voice (Lucy)
     const viVoice = voices.find(v => v.lang.startsWith('vi') && v.name.toLowerCase().includes('female'))
       || voices.find(v => v.lang.startsWith('vi'))
       || voices.find(v => v.lang.startsWith('vi-VN'));
@@ -47,7 +48,7 @@ export function useVietnameseVoice() {
     } else {
       timeText = `${mins} phút ${secs} giây`;
     }
-    speak(`Đã hoàn thành ${taskTitle} trong ${timeText}`);
+    speak(`Tuyệt vời! Đã hoàn thành ${taskTitle} trong ${timeText}`);
   }, [speak]);
 
   return { speak, announceTime, announceCompletion };

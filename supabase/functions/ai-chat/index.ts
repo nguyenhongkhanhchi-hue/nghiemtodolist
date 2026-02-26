@@ -1,12 +1,12 @@
 import { corsHeaders } from '../_shared/cors.ts';
 
-const SYSTEM_PROMPT = `Bạn là TaskFlow AI — trợ lý thông minh quản lý công việc hàng ngày. Bạn luôn trả lời bằng tiếng Việt, thân thiện, ngắn gọn, dứt khoát.
+const SYSTEM_PROMPT = `Bạn tên là Lucy — trợ lý AI thông minh của NghiemWork. Bạn luôn trả lời bằng tiếng Việt, thân thiện, ngắn gọn, dứt khoát. Giọng nói: nữ, ấm áp, năng động.
 
 ## Ma trận Eisenhower
-- Q1 do_first: Gấp + Quan trọng → Làm ngay
-- Q2 schedule: Quan trọng nhưng không gấp → Lên lịch
-- Q3 delegate: Gấp nhưng không quan trọng → Ủy thác
-- Q4 eliminate: Không gấp, không quan trọng → Loại bỏ
+- Làm ngay (do_first): Gấp + Quan trọng → Làm ngay
+- Lên lịch (schedule): Quan trọng nhưng không gấp → Lên lịch
+- Ủy thác (delegate): Gấp nhưng không quan trọng → Ủy thác
+- Loại bỏ (eliminate): Không gấp, không quan trọng → Loại bỏ
 
 ## Khả năng thao tác
 Khi người dùng yêu cầu thực hiện hành động, trả về lệnh JSON trong block :::ACTION và :::END.
@@ -38,12 +38,12 @@ Khi người dùng yêu cầu thực hiện hành động, trả về lệnh JSO
 
 ### Chuyển trang
 :::ACTION
-{"type":"NAVIGATE","page":"tasks|stats|settings|achievements|templates|finance"}
+{"type":"NAVIGATE","page":"tasks|stats|settings|achievements|templates|finance|weekly_review"}
 :::END
 
-### Tạo việc mẫu (Template)
+### Tạo việc mẫu (Template) - với EXP
 :::ACTION
-{"type":"ADD_TEMPLATE","title":"tên mẫu","quadrant":"do_first","subtasks":["việc con 1","việc con 2"],"notes":"ghi chú"}
+{"type":"ADD_TEMPLATE","title":"tên mẫu","quadrant":"do_first","subtasks":["việc con 1","việc con 2"],"notes":"ghi chú","xpReward":10}
 :::END
 
 ### Sử dụng mẫu để tạo việc
@@ -66,7 +66,7 @@ Khi người dùng yêu cầu thực hiện hành động, trả về lệnh JSO
 {"type":"UPDATE_REWARD","search":"từ khóa","title":"tên mới","xpCost":150}
 :::END
 
-### Thêm thành tích tùy chỉnh
+### Thêm thành tích tùy chỉnh - với EXP
 :::ACTION
 {"type":"ADD_ACHIEVEMENT","title":"tên thành tích","description":"mô tả","icon":"🏆","xpReward":50}
 :::END
@@ -87,16 +87,17 @@ Khi người dùng yêu cầu thực hiện hành động, trả về lệnh JSO
 :::END
 
 ## Quy tắc
-1. Luôn kèm lời giải thích ngắn gọn
+1. Luôn kèm lời giải thích ngắn gọn, dùng giọng nữ thân thiện
 2. Nếu hỏi chuyện thông thường, chỉ trả lời văn bản
 3. Giỏi gợi ý quản lý thời gian, Eisenhower, thói quen tốt
 4. Khi "hoàn thành tất cả" → COMPLETE_TASK cho từng việc pending
 5. Gán quadrant phù hợp theo ngữ cảnh
-6. Khi tạo mẫu, nghĩ ra subtasks phù hợp
+6. Khi tạo mẫu, nghĩ ra subtasks phù hợp và quy định EXP hợp lý (5-50 XP tùy độ khó)
 7. Phần thưởng: gợi ý phần thưởng thực tế, phù hợp XP người dùng
-8. Thành tích: tạo thành tích có ý nghĩa, mang tính động viên
-9. Bạn có thể tạo cả thành tích ngắn hạn (trong ngày) lẫn dài hạn (tích lũy)
-10. Có thể gợi ý thu chi khi tạo việc nếu liên quan đến tài chính`;
+8. Thành tích: tạo thành tích có ý nghĩa, mang tính động viên, quy định XP rõ ràng
+9. Có thể tạo cả thành tích ngắn hạn (trong ngày) lẫn dài hạn (tích lũy)
+10. Gọi Eisenhower bằng tên đầy đủ: "Làm ngay", "Lên lịch", "Ủy thác", "Loại bỏ" — KHÔNG dùng Q1/Q2/Q3/Q4
+11. Tự giới thiệu mình tên là Lucy khi được hỏi`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -116,7 +117,7 @@ Deno.serve(async (req: Request) => {
     const contextParts: string[] = [];
     if (taskContext) {
       if (taskContext.pending?.length > 0) {
-        contextParts.push(`Việc cần làm: ${taskContext.pending.map((t: any) => `"${t.title}" [${t.quadrant}]${t.deadline ? ` (hạn: ${new Date(t.deadline).toLocaleString('vi-VN')})` : ''}${t.finance ? ` (${t.finance.type}: ${t.finance.amount}đ)` : ''}`).join(', ')}`);
+        contextParts.push(`Việc cần làm: ${taskContext.pending.map((t: any) => `"${t.title}" [${t.quadrant}]${t.deadline ? ` (hạn: ${new Date(t.deadline).toLocaleString('vi-VN')})` : ''}${t.finance ? ` (${t.finance.type}: ${t.finance.amount}đ)` : ''}${t.xpReward ? ` (+${t.xpReward}XP)` : ''}`).join(', ')}`);
       } else {
         contextParts.push('Việc cần làm: Trống');
       }
@@ -133,7 +134,7 @@ Deno.serve(async (req: Request) => {
         contextParts.push(`Timer ${taskContext.timerPaused ? 'tạm dừng' : 'đang chạy'} cho: "${taskContext.timerTask}" (${taskContext.timerElapsed || 0}s)`);
       }
       if (taskContext.templates?.length > 0) {
-        contextParts.push(`Mẫu: ${taskContext.templates.map((t: any) => `"${t.title}"`).join(', ')}`);
+        contextParts.push(`Mẫu: ${taskContext.templates.map((t: any) => `"${t.title}"${t.xpReward ? ` (+${t.xpReward}XP)` : ''}`).join(', ')}`);
       }
       if (taskContext.gamification) {
         const g = taskContext.gamification;
@@ -143,12 +144,8 @@ Deno.serve(async (req: Request) => {
         }
         const unlockedAch = g.achievements?.filter((a: any) => a.unlockedAt) || [];
         const lockedAch = g.achievements?.filter((a: any) => !a.unlockedAt) || [];
-        if (unlockedAch.length > 0) {
-          contextParts.push(`Thành tích đạt: ${unlockedAch.map((a: any) => `"${a.title}"`).join(', ')}`);
-        }
-        if (lockedAch.length > 0) {
-          contextParts.push(`Thành tích chưa đạt: ${lockedAch.slice(0, 5).map((a: any) => `"${a.title}"`).join(', ')}`);
-        }
+        if (unlockedAch.length > 0) contextParts.push(`Thành tích đạt: ${unlockedAch.map((a: any) => `"${a.title}"`).join(', ')}`);
+        if (lockedAch.length > 0) contextParts.push(`Thành tích chưa đạt: ${lockedAch.slice(0, 5).map((a: any) => `"${a.title}"`).join(', ')}`);
       }
     }
 

@@ -13,6 +13,7 @@ import AchievementsPage from '@/pages/AchievementsPage';
 import AuthPage from '@/pages/AuthPage';
 import TemplatesPage from '@/pages/TemplatesPage';
 import FinancePage from '@/pages/FinancePage';
+import WeeklyReviewPage from '@/pages/WeeklyReviewPage';
 
 export default function App() {
   const currentPage = useSettingsStore(s => s.currentPage);
@@ -30,10 +31,12 @@ export default function App() {
   const tasks = useTaskStore(s => s.tasks);
   const markOverdue = useTaskStore(s => s.markOverdue);
 
+  // Font scale — set on html root for rem-based sizing
   useEffect(() => {
     document.documentElement.style.setProperty('--font-scale', String(fontScale));
   }, [fontScale]);
 
+  // Preload voices
   useEffect(() => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
@@ -41,6 +44,7 @@ export default function App() {
     }
   }, []);
 
+  // Auth session
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -67,6 +71,7 @@ export default function App() {
     return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 
+  // Init stores per user
   useEffect(() => {
     if (user) {
       const userId = user.id === 'guest' ? undefined : user.id;
@@ -77,6 +82,7 @@ export default function App() {
     }
   }, [user?.id]);
 
+  // Mark overdue + notifications
   useEffect(() => {
     if (!user) return;
     const notifiedSet = new Set<string>();
@@ -96,7 +102,7 @@ export default function App() {
       <div className="min-h-[100dvh] flex items-center justify-center bg-[var(--bg-base)]">
         <div className="flex flex-col items-center gap-3">
           <div className="size-12 rounded-2xl bg-[var(--accent-dim)] flex items-center justify-center border border-[var(--border-accent)] animate-pulse">
-            <span className="text-xl font-bold text-[var(--accent-primary)]">T</span>
+            <span className="text-xl font-bold text-[var(--accent-primary)]">N</span>
           </div>
           <p className="text-sm text-[var(--text-muted)]">Đang tải...</p>
         </div>
@@ -115,6 +121,7 @@ export default function App() {
       case 'settings': return <SettingsPage />;
       case 'templates': return <TemplatesPage />;
       case 'finance': return <FinancePage />;
+      case 'weekly_review': return <WeeklyReviewPage />;
       default: return <TasksPage />;
     }
   };

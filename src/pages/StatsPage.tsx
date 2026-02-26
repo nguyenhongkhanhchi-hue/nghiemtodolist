@@ -6,8 +6,9 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 import { TrendingUp, Clock, Award, BarChart3, Target, Flame, Share2, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { EisenhowerQuadrant } from '@/types';
 
+import { QUADRANT_LABELS } from '@/types';
 const QUADRANT_NAMES: Record<EisenhowerQuadrant, string> = {
-  do_first: 'Q1 Làm ngay', schedule: 'Q2 Lên lịch', delegate: 'Q3 Ủy thác', eliminate: 'Q4 Loại bỏ',
+  do_first: 'Làm ngay', schedule: 'Lên lịch', delegate: 'Ủy thác', eliminate: 'Loại bỏ',
 };
 const PIE_COLORS = ['#F87171', '#00E5CC', '#FBBF24', '#5A5A6E'];
 const HEATMAP_COLORS = ['var(--bg-surface)', 'rgba(0,229,204,0.2)', 'rgba(0,229,204,0.4)', 'rgba(0,229,204,0.6)', 'rgba(0,229,204,0.9)'];

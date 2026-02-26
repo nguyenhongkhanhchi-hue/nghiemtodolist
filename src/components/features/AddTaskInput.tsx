@@ -4,12 +4,7 @@ import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { Plus, Mic, MicOff, X, Calendar, RotateCcw, ChevronDown, Clock } from 'lucide-react';
 import type { EisenhowerQuadrant, RecurringConfig, RecurringType } from '@/types';
 
-const QUADRANT_CONFIG: { value: EisenhowerQuadrant; label: string; short: string; color: string; icon: string }[] = [
-  { value: 'do_first', label: 'Làm ngay', short: 'Q1', color: 'var(--error)', icon: '🔴' },
-  { value: 'schedule', label: 'Lên lịch', short: 'Q2', color: 'var(--accent-primary)', icon: '🔵' },
-  { value: 'delegate', label: 'Ủy thác', short: 'Q3', color: 'var(--warning)', icon: '🟡' },
-  { value: 'eliminate', label: 'Loại bỏ', short: 'Q4', color: 'var(--text-muted)', icon: '⚪' },
-];
+import { QUADRANT_LABELS } from '@/types';
 
 const RECURRING_OPTIONS: { value: RecurringType; label: string }[] = [
   { value: 'none', label: 'Không lặp' },
@@ -196,21 +191,22 @@ export function AddTaskInput() {
                 Ma trận Eisenhower
               </label>
               <div className="grid grid-cols-2 gap-1.5">
-                {QUADRANT_CONFIG.map(({ value: qv, label, icon, color }) => (
-                  <button
-                    key={qv}
-                    onClick={() => setQuadrant(qv)}
-                    className={`py-2.5 rounded-lg text-[11px] font-medium min-h-[40px] transition-colors border flex items-center justify-center gap-1.5 ${
-                      quadrant === qv
-                        ? 'border-current'
-                        : 'border-transparent bg-[var(--bg-surface)]'
-                    }`}
-                    style={quadrant === qv ? { color, backgroundColor: `${color}15` } : {}}
-                  >
-                    <span>{icon}</span>
-                    {label}
-                  </button>
-                ))}
+                {(Object.keys(QUADRANT_LABELS) as EisenhowerQuadrant[]).map(qv => {
+                  const cfg = QUADRANT_LABELS[qv];
+                  return (
+                    <button
+                      key={qv}
+                      onClick={() => setQuadrant(qv)}
+                      className={`py-2.5 rounded-lg text-[11px] font-medium min-h-[40px] transition-colors border flex items-center justify-center gap-1.5 ${
+                        quadrant === qv ? 'border-current' : 'border-transparent bg-[var(--bg-surface)]'
+                      }`}
+                      style={quadrant === qv ? { color: cfg.color, backgroundColor: `${cfg.color}15` } : {}}
+                    >
+                      <span>{cfg.icon}</span>
+                      {cfg.label}
+                    </button>
+                  );
+                })}
               </div>
               <div className="grid grid-cols-2 gap-1.5 mt-1 text-[9px] text-[var(--text-muted)]">
                 <div className="text-center">Gấp + Quan trọng</div>

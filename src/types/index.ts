@@ -3,7 +3,7 @@ export type EisenhowerQuadrant = 'do_first' | 'schedule' | 'delegate' | 'elimina
 export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'overdue' | 'paused';
 export type RecurringType = 'none' | 'daily' | 'weekdays' | 'weekly' | 'custom';
 export type TabType = 'pending' | 'done' | 'overdue';
-export type PageType = 'tasks' | 'stats' | 'ai' | 'settings' | 'achievements' | 'templates' | 'finance';
+export type PageType = 'tasks' | 'stats' | 'ai' | 'settings' | 'achievements' | 'templates' | 'finance' | 'weekly_review';
 
 export interface RecurringConfig {
   type: RecurringType;
@@ -16,7 +16,7 @@ export type MediaBlockType = 'text' | 'image' | 'youtube';
 export interface MediaBlock {
   id: string;
   type: MediaBlockType;
-  content: string; // text content, image URL, or youtube embed URL
+  content: string;
   caption?: string;
 }
 
@@ -25,6 +25,15 @@ export interface TaskFinance {
   type: 'income' | 'expense';
   amount: number;
   note?: string;
+}
+
+// Pomodoro settings
+export interface PomodoroSettings {
+  enabled: boolean;
+  workMinutes: number;
+  breakMinutes: number;
+  longBreakMinutes: number;
+  sessionsBeforeLongBreak: number;
 }
 
 export interface Task {
@@ -46,13 +55,15 @@ export interface Task {
   notes?: string;
   // Subtasks / hierarchy
   parentId?: string;
-  children?: string[]; // child task IDs
-  // Rich media content
-  media?: MediaBlock[];
-  // Financial
+  children?: string[];
+  // Financial - per task instance (can override template)
   finance?: TaskFinance;
   // Template source
   templateId?: string;
+  // Dependencies
+  dependsOn?: string[]; // task IDs this task depends on
+  // EXP from template
+  xpReward?: number;
 }
 
 export interface TaskTemplate {
@@ -64,6 +75,7 @@ export interface TaskTemplate {
   media?: MediaBlock[];
   subtasks?: { title: string; quadrant: EisenhowerQuadrant }[];
   finance?: TaskFinance;
+  xpReward?: number; // EXP gained when completing task from this template
   createdAt: number;
   updatedAt?: number;
 }
@@ -76,6 +88,9 @@ export interface TimerState {
   startTime: number | null;
   pausedAt: number | null;
   totalPausedDuration: number;
+  // Pomodoro
+  pomodoroSession: number; // current session number
+  pomodoroPhase: 'work' | 'break' | 'longBreak' | 'none';
 }
 
 export interface ChatMessage {
@@ -151,3 +166,11 @@ export interface NotificationSettings {
   dailyReminder: boolean;
   dailyReminderTime: string;
 }
+
+// Quadrant display config
+export const QUADRANT_LABELS: Record<EisenhowerQuadrant, { label: string; icon: string; color: string; desc: string }> = {
+  do_first: { label: 'Làm ngay', icon: '🔴', color: 'var(--error)', desc: 'Gấp + Quan trọng' },
+  schedule: { label: 'Lên lịch', icon: '🔵', color: 'var(--accent-primary)', desc: 'Quan trọng' },
+  delegate: { label: 'Ủy thác', icon: '🟡', color: 'var(--warning)', desc: 'Gấp' },
+  eliminate: { label: 'Loại bỏ', icon: '⚪', color: 'var(--text-muted)', desc: 'Không gấp, không QT' },
+};

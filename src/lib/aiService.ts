@@ -10,7 +10,7 @@ interface TaskContext {
   timerPaused: boolean;
   timerTask?: string;
   timerElapsed?: number;
-  templates?: { id: string; title: string }[];
+  templates?: { id: string; title: string; xpReward?: number }[];
   gamification?: {
     xp: number;
     level: number;

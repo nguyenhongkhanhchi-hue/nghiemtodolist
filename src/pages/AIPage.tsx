@@ -82,7 +82,7 @@ export default function AIPage() {
       }
       case 'NAVIGATE': {
         const p = action.page as any;
-        if (['tasks', 'stats', 'settings', 'achievements', 'templates', 'finance'].includes(p)) {
+        if (['tasks', 'stats', 'settings', 'achievements', 'templates', 'finance', 'weekly_review'].includes(p)) {
           setCurrentPage(p);
           return `Đã chuyển trang ${p}`;
         }
@@ -96,8 +96,9 @@ export default function AIPage() {
           recurring: { type: 'none' },
           notes: action.notes,
           subtasks: action.subtasks?.map(s => ({ title: s, quadrant: (action.quadrant as EisenhowerQuadrant) || 'do_first' })),
+          xpReward: action.xpReward,
         });
-        return `Đã tạo mẫu "${action.title}"${action.subtasks ? ` với ${action.subtasks.length} việc con` : ''}`;
+        return `Đã tạo mẫu "${action.title}"${action.subtasks ? ` với ${action.subtasks.length} việc con` : ''}${action.xpReward ? ` (+${action.xpReward} XP)` : ''}`;
       }
       case 'USE_TEMPLATE': {
         const s = (action.search || '').toLowerCase();
@@ -191,7 +192,7 @@ export default function AIPage() {
     isStreamingRef.current = true;
 
     const taskContext = {
-      pending: tasks.filter(t => t.status === 'pending' && !t.parentId).map(t => ({ id: t.id, title: t.title, quadrant: t.quadrant, deadline: t.deadline, recurring: t.recurring, finance: t.finance })),
+      pending: tasks.filter(t => t.status === 'pending' && !t.parentId).map(t => ({ id: t.id, title: t.title, quadrant: t.quadrant, deadline: t.deadline, recurring: t.recurring, finance: t.finance, xpReward: t.xpReward })),
       inProgress: tasks.filter(t => t.status === 'in_progress').map(t => ({ id: t.id, title: t.title })),
       done: tasks.filter(t => t.status === 'done' && !t.parentId).slice(0, 10).map(t => ({ id: t.id, title: t.title, duration: t.duration })),
       overdue: tasks.filter(t => t.status === 'overdue').map(t => ({ id: t.id, title: t.title })),
@@ -199,7 +200,7 @@ export default function AIPage() {
       timerPaused: timer.isPaused,
       timerTask: tasks.find(t => t.id === timer.taskId)?.title,
       timerElapsed: timer.elapsed,
-      templates: templates.map(t => ({ id: t.id, title: t.title })),
+      templates: templates.map(t => ({ id: t.id, title: t.title, xpReward: t.xpReward })),
       gamification: {
         xp: gamState.xp,
         level: gamState.level,
@@ -241,7 +242,7 @@ export default function AIPage() {
     { text: 'Tạo mẫu "Routine buổi sáng"', icon: '📋' },
     { text: 'Tạo 5 thành tích cho tuần này', icon: '🏆' },
     { text: 'Gợi ý phần thưởng phù hợp', icon: '🎁' },
-    { text: 'Hoàn thành tất cả việc Q4', icon: '✅' },
+    { text: 'Hoàn thành tất cả việc Loại bỏ', icon: '✅' },
   ];
 
   const pendingCount = tasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && !t.parentId).length;
@@ -257,8 +258,8 @@ export default function AIPage() {
             <div className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-[var(--success)] border-2 border-[var(--bg-base)]" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-[var(--text-primary)]">Trợ lý AI</h1>
-            <p className="text-[10px] text-[var(--text-muted)]">Gemini 3 Flash • Eisenhower</p>
+            <h1 className="text-base font-bold text-[var(--text-primary)]">Lucy</h1>
+            <p className="text-[10px] text-[var(--text-muted)]">Trợ lý AI • NghiemWork</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -292,8 +293,8 @@ export default function AIPage() {
             <div className="size-16 rounded-2xl bg-[var(--bg-elevated)] flex items-center justify-center mb-4">
               <Bot size={28} className="text-[var(--accent-primary)]" />
             </div>
-            <p className="text-sm text-[var(--text-secondary)] mb-1 text-center font-medium">Tôi là trợ lý AI thông minh</p>
-            <p className="text-xs text-[var(--text-muted)] mb-5 text-center px-8">Quản lý việc, mẫu, thành tích, phần thưởng, thu chi</p>
+            <p className="text-sm text-[var(--text-secondary)] mb-1 text-center font-medium">Xin chào! Mình là Lucy</p>
+            <p className="text-xs text-[var(--text-muted)] mb-5 text-center px-8">Mình giúp bạn quản lý việc, mẫu, thành tích, phần thưởng, thu chi</p>
             <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
               {suggestions.map(s => (
                 <button key={s.text} onClick={() => setInput(s.text)}

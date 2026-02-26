@@ -4,6 +4,7 @@ import type {
   EisenhowerQuadrant, RecurringConfig, UserProfile,
   GamificationState, NotificationSettings, Reward,
   TaskTemplate, MediaBlock, TaskFinance, Achievement,
+  PomodoroSettings,
 } from '@/types';
 import { calculateLevel, checkAchievement, getDefaultGamificationState } from '@/lib/gamification';
 import { getNowInTimezone } from '@/lib/notifications';
@@ -51,11 +52,13 @@ interface TaskStore {
   tasks: Task[];
   activeTab: TabType;
   timer: TimerState;
+  searchQuery: string;
   _userId: string | undefined;
   initForUser: (userId?: string) => void;
   setActiveTab: (tab: TabType) => void;
-  addTask: (title: string, quadrant?: EisenhowerQuadrant, deadline?: number, recurring?: RecurringConfig, deadlineDate?: string, deadlineTime?: string, parentId?: string, media?: MediaBlock[], finance?: TaskFinance, templateId?: string) => string;
-  updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'quadrant' | 'deadline' | 'recurring' | 'notes' | 'deadlineDate' | 'deadlineTime' | 'media' | 'finance' | 'parentId'>>) => void;
+  setSearchQuery: (q: string) => void;
+  addTask: (title: string, quadrant?: EisenhowerQuadrant, deadline?: number, recurring?: RecurringConfig, deadlineDate?: string, deadlineTime?: string, parentId?: string, media?: MediaBlock[], finance?: TaskFinance, templateId?: string, xpReward?: number) => string;
+  updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'quadrant' | 'deadline' | 'recurring' | 'notes' | 'deadlineDate' | 'deadlineTime' | 'finance' | 'parentId' | 'dependsOn' | 'xpReward'>>) => void;
   removeTask: (id: string) => void;
   completeTask: (id: string, duration?: number) => void;
   restoreTask: (id: string) => void;
@@ -70,49 +73,48 @@ interface TaskStore {
   startTask: (id: string) => void;
   getSubtasks: (parentId: string) => Task[];
   addSubtask: (parentId: string, title: string, quadrant?: EisenhowerQuadrant) => string;
+  assignAsSubtask: (taskId: string, parentId: string) => void;
+  unassignSubtask: (taskId: string) => void;
+  canStartTask: (taskId: string) => boolean;
+  hasChildren: (taskId: string) => boolean;
 }
 
-const defaultTimer: TimerState = { taskId: null, isRunning: false, isPaused: false, elapsed: 0, startTime: null, pausedAt: null, totalPausedDuration: 0 };
+const defaultTimer: TimerState = {
+  taskId: null, isRunning: false, isPaused: false, elapsed: 0,
+  startTime: null, pausedAt: null, totalPausedDuration: 0,
+  pomodoroSession: 0, pomodoroPhase: 'none',
+};
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
-  tasks: loadFromStorage<Task[]>('taskflow_tasks', []),
+  tasks: loadFromStorage<Task[]>('nw_tasks', []),
   activeTab: 'pending',
   timer: { ...defaultTimer },
+  searchQuery: '',
   _userId: undefined,
 
   initForUser: (userId) => {
-    const key = getUserKey('taskflow_tasks', userId);
+    const key = getUserKey('nw_tasks', userId);
     const tasks = loadFromStorage<Task[]>(key, []);
     set({ tasks, _userId: userId, timer: { ...defaultTimer } });
   },
 
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setSearchQuery: (q) => set({ searchQuery: q }),
 
-  addTask: (title, quadrant = 'do_first', deadline, recurring = { type: 'none' }, deadlineDate, deadlineTime, parentId, media, finance, templateId) => {
+  addTask: (title, quadrant = 'do_first', deadline, recurring = { type: 'none' }, deadlineDate, deadlineTime, parentId, _media, finance, templateId, xpReward) => {
     const tasks = get().tasks;
     const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
     const id = generateId();
     const newTask: Task = {
-      id,
-      title,
-      status: 'pending',
-      quadrant,
-      createdAt: Date.now(),
-      deadline,
-      deadlineDate,
-      deadlineTime,
+      id, title, status: 'pending', quadrant,
+      createdAt: Date.now(), deadline, deadlineDate, deadlineTime,
       order: pendingTasks.length,
       recurring: recurring || { type: 'none' },
       recurringLabel: recurring && recurring.type !== 'none' ? title : undefined,
-      parentId,
-      media: media || [],
-      finance,
-      templateId,
+      parentId, finance, templateId, xpReward,
     };
 
     let updated = [...tasks, newTask];
-
-    // If has parent, add to parent's children array
     if (parentId) {
       updated = updated.map(t => {
         if (t.id === parentId) {
@@ -122,7 +124,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       });
     }
 
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
     return id;
@@ -132,7 +134,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const updated = get().tasks.map(t =>
       t.id === id ? { ...t, ...updates } : t
     );
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
   },
@@ -140,7 +142,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   removeTask: (id) => {
     const tasks = get().tasks;
     const taskToRemove = tasks.find(t => t.id === id);
-    // Collect all descendant IDs recursively
     const idsToRemove = new Set<string>();
     const collectIds = (taskId: string) => {
       idsToRemove.add(taskId);
@@ -152,7 +153,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     collectIds(id);
 
     let updated = tasks.filter(t => !idsToRemove.has(t.id));
-    // Remove from parent's children
     if (taskToRemove?.parentId) {
       updated = updated.map(t => {
         if (t.id === taskToRemove.parentId) {
@@ -161,8 +161,15 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         return t;
       });
     }
+    // Remove from dependsOn of other tasks
+    updated = updated.map(t => {
+      if (t.dependsOn?.includes(id)) {
+        return { ...t, dependsOn: t.dependsOn.filter(d => d !== id) };
+      }
+      return t;
+    });
 
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
   },
@@ -180,7 +187,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         duration: (t.duration || 0) + finalDuration,
       } : t
     );
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
 
     if (timer.taskId === id) {
@@ -193,7 +200,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const task = get().tasks.find(t => t.id === id);
     if (task) {
       const gamStore = useGamificationStore.getState();
-      gamStore.onTaskCompleted(task.quadrant, finalDuration, settingsStore.timezone);
+      const xpFromTemplate = task.xpReward || 0;
+      gamStore.onTaskCompleted(task.quadrant, finalDuration, settingsStore.timezone, xpFromTemplate);
     }
   },
 
@@ -201,7 +209,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const updated = get().tasks.map(t =>
       t.id === id ? { ...t, status: 'pending' as const, completedAt: undefined } : t
     );
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
   },
@@ -215,7 +223,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     pending.forEach((t, i) => { t.order = i; });
     const rest = tasks.filter(t => (t.status !== 'pending' && t.status !== 'in_progress') || t.parentId);
     const updated = [...pending, ...rest];
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
   },
@@ -224,20 +232,26 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const updated = get().tasks.map(t =>
       t.id === id ? { ...t, status: 'in_progress' as const } : t
     );
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({ tasks: updated });
   },
 
   startTimer: (taskId) => {
+    const pomodoroSettings = useSettingsStore.getState().pomodoroSettings;
     const updated = get().tasks.map(t =>
       t.id === taskId ? { ...t, status: 'in_progress' as const } : t
     );
-    const key = getUserKey('taskflow_tasks', get()._userId);
+    const key = getUserKey('nw_tasks', get()._userId);
     saveToStorage(key, updated);
     set({
       tasks: updated,
-      timer: { taskId, isRunning: true, isPaused: false, elapsed: 0, startTime: Date.now(), pausedAt: null, totalPausedDuration: 0 },
+      timer: {
+        taskId, isRunning: true, isPaused: false, elapsed: 0,
+        startTime: Date.now(), pausedAt: null, totalPausedDuration: 0,
+        pomodoroSession: pomodoroSettings.enabled ? 1 : 0,
+        pomodoroPhase: pomodoroSettings.enabled ? 'work' : 'none',
+      },
     });
   },
 
@@ -262,7 +276,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const updated = get().tasks.map(t =>
         t.id === timer.taskId && t.status === 'in_progress' ? { ...t, status: 'pending' as const } : t
       );
-      const key = getUserKey('taskflow_tasks', get()._userId);
+      const key = getUserKey('nw_tasks', get()._userId);
       saveToStorage(key, updated);
       set({ tasks: updated, timer: { ...defaultTimer } });
     } else {
@@ -281,11 +295,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   clearAllData: () => {
     const userId = get()._userId;
-    localStorage.removeItem(getUserKey('taskflow_tasks', userId));
-    localStorage.removeItem(getUserKey('taskflow_chat', userId));
-    localStorage.removeItem(getUserKey('taskflow_gamification', userId));
-    localStorage.removeItem(getUserKey('taskflow_templates', userId));
-    localStorage.removeItem('taskflow_settings');
+    localStorage.removeItem(getUserKey('nw_tasks', userId));
+    localStorage.removeItem(getUserKey('nw_chat', userId));
+    localStorage.removeItem(getUserKey('nw_gamification', userId));
+    localStorage.removeItem(getUserKey('nw_templates', userId));
+    localStorage.removeItem('nw_settings');
     set({ tasks: [], timer: { ...defaultTimer } });
   },
 
@@ -301,7 +315,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       return t;
     });
     if (changed) {
-      const key = getUserKey('taskflow_tasks', get()._userId);
+      const key = getUserKey('nw_tasks', get()._userId);
       saveToStorage(key, updated);
       set({ tasks: updated });
     }
@@ -314,6 +328,45 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   addSubtask: (parentId, title, quadrant = 'do_first') => {
     return get().addTask(title, quadrant, undefined, { type: 'none' }, undefined, undefined, parentId);
   },
+
+  assignAsSubtask: (taskId, parentId) => {
+    let updated = get().tasks.map(t => {
+      if (t.id === taskId) return { ...t, parentId };
+      if (t.id === parentId) return { ...t, children: [...(t.children || []), taskId] };
+      return t;
+    });
+    const key = getUserKey('nw_tasks', get()._userId);
+    saveToStorage(key, updated);
+    set({ tasks: updated });
+  },
+
+  unassignSubtask: (taskId) => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task?.parentId) return;
+    const parentId = task.parentId;
+    let updated = get().tasks.map(t => {
+      if (t.id === taskId) return { ...t, parentId: undefined };
+      if (t.id === parentId) return { ...t, children: (t.children || []).filter(c => c !== taskId) };
+      return t;
+    });
+    const key = getUserKey('nw_tasks', get()._userId);
+    saveToStorage(key, updated);
+    set({ tasks: updated });
+  },
+
+  canStartTask: (taskId) => {
+    const tasks = get().tasks;
+    const task = tasks.find(t => t.id === taskId);
+    if (!task?.dependsOn || task.dependsOn.length === 0) return true;
+    return task.dependsOn.every(depId => {
+      const dep = tasks.find(t => t.id === depId);
+      return dep?.status === 'done';
+    });
+  },
+
+  hasChildren: (taskId) => {
+    return get().tasks.some(t => t.parentId === taskId);
+  },
 }));
 
 // ──────────── TEMPLATE STORE ────────────
@@ -324,7 +377,7 @@ interface TemplateStore {
   addTemplate: (template: Omit<TaskTemplate, 'id' | 'createdAt'>) => string;
   updateTemplate: (id: string, updates: Partial<TaskTemplate>) => void;
   removeTemplate: (id: string) => void;
-  createTaskFromTemplate: (templateId: string) => void;
+  createTaskFromTemplate: (templateId: string, financeOverride?: TaskFinance) => void;
 }
 
 export const useTemplateStore = create<TemplateStore>((set, get) => ({
@@ -332,7 +385,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
   _userId: undefined,
 
   initForUser: (userId) => {
-    const key = getUserKey('taskflow_templates', userId);
+    const key = getUserKey('nw_templates', userId);
     const templates = loadFromStorage<TaskTemplate[]>(key, []);
     set({ templates, _userId: userId });
   },
@@ -341,7 +394,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     const id = generateId();
     const newTemplate: TaskTemplate = { ...template, id, createdAt: Date.now() };
     const updated = [...get().templates, newTemplate];
-    const key = getUserKey('taskflow_templates', get()._userId);
+    const key = getUserKey('nw_templates', get()._userId);
     saveToStorage(key, updated);
     set({ templates: updated });
     return id;
@@ -351,35 +404,27 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     const updated = get().templates.map(t =>
       t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t
     );
-    const key = getUserKey('taskflow_templates', get()._userId);
+    const key = getUserKey('nw_templates', get()._userId);
     saveToStorage(key, updated);
     set({ templates: updated });
   },
 
   removeTemplate: (id) => {
     const updated = get().templates.filter(t => t.id !== id);
-    const key = getUserKey('taskflow_templates', get()._userId);
+    const key = getUserKey('nw_templates', get()._userId);
     saveToStorage(key, updated);
     set({ templates: updated });
   },
 
-  createTaskFromTemplate: (templateId) => {
+  createTaskFromTemplate: (templateId, financeOverride) => {
     const template = get().templates.find(t => t.id === templateId);
     if (!template) return;
     const taskStore = useTaskStore.getState();
+    const finance = financeOverride || template.finance;
     const parentId = taskStore.addTask(
-      template.title,
-      template.quadrant,
-      undefined,
-      template.recurring,
-      undefined,
-      undefined,
-      undefined,
-      template.media,
-      template.finance,
-      templateId,
+      template.title, template.quadrant, undefined, template.recurring,
+      undefined, undefined, undefined, undefined, finance, templateId, template.xpReward,
     );
-    // Create subtasks
     if (template.subtasks) {
       template.subtasks.forEach(sub => {
         taskStore.addSubtask(parentId, sub.title, sub.quadrant);
@@ -400,12 +445,12 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
-  messages: loadFromStorage<ChatMessage[]>('taskflow_chat', []),
+  messages: loadFromStorage<ChatMessage[]>('nw_chat', []),
   isLoading: false,
   _userId: undefined,
 
   initForUser: (userId) => {
-    const key = getUserKey('taskflow_chat', userId);
+    const key = getUserKey('nw_chat', userId);
     const messages = loadFromStorage<ChatMessage[]>(key, []);
     set({ messages, _userId: userId });
   },
@@ -413,7 +458,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   addMessage: (role, content) => {
     const msg: ChatMessage = { id: generateId(), role, content, timestamp: Date.now() };
     const updated = [...get().messages, msg];
-    const key = getUserKey('taskflow_chat', get()._userId);
+    const key = getUserKey('nw_chat', get()._userId);
     saveToStorage(key, updated);
     set({ messages: updated });
   },
@@ -421,7 +466,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setLoading: (loading) => set({ isLoading: loading }),
 
   clearChat: () => {
-    const key = getUserKey('taskflow_chat', get()._userId);
+    const key = getUserKey('nw_chat', get()._userId);
     localStorage.removeItem(key);
     set({ messages: [] });
   },
@@ -432,7 +477,7 @@ interface GamificationStore {
   state: GamificationState;
   _userId: string | undefined;
   initForUser: (userId?: string) => void;
-  onTaskCompleted: (quadrant: EisenhowerQuadrant, duration: number, timezone: string) => void;
+  onTaskCompleted: (quadrant: EisenhowerQuadrant, duration: number, timezone: string, bonusXp?: number) => void;
   claimReward: (rewardId: string) => void;
   addCustomReward: (reward: Omit<Reward, 'id' | 'claimed'>) => void;
   removeReward: (rewardId: string) => void;
@@ -449,7 +494,7 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
   _userId: undefined,
 
   initForUser: (userId) => {
-    const key = getUserKey('taskflow_gamification', userId);
+    const key = getUserKey('nw_gamification', userId);
     const saved = loadFromStorage<GamificationState | null>(key, null);
     if (saved) {
       const defaultState = getDefaultGamificationState();
@@ -463,11 +508,11 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
   },
 
   _save: () => {
-    const key = getUserKey('taskflow_gamification', get()._userId);
+    const key = getUserKey('nw_gamification', get()._userId);
     saveToStorage(key, get().state);
   },
 
-  onTaskCompleted: (quadrant, duration, timezone) => {
+  onTaskCompleted: (quadrant, duration, timezone, bonusXp = 0) => {
     const s = { ...get().state };
     const now = getNowInTimezone(timezone);
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -478,6 +523,8 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     else if (quadrant === 'schedule') xpGain = 15;
     else if (quadrant === 'delegate') xpGain = 10;
     else xpGain = 5;
+
+    xpGain += bonusXp;
 
     s.totalTasksCompleted += 1;
     s.totalTimerSeconds += duration;
@@ -523,12 +570,6 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     s.level = calculateLevel(s.xp);
     set({ state: s });
     get()._save();
-
-    if (newUnlocked.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
-      newUnlocked.forEach(title => {
-        try { new Notification('Thành tích mới!', { body: title, icon: '/og-image.jpg' }); } catch { /* silent */ }
-      });
-    }
   },
 
   claimReward: (rewardId) => {
@@ -602,6 +643,14 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
 }));
 
 // ──────────── SETTINGS STORE ────────────
+const defaultPomodoroSettings: PomodoroSettings = {
+  enabled: false,
+  workMinutes: 25,
+  breakMinutes: 5,
+  longBreakMinutes: 15,
+  sessionsBeforeLongBreak: 4,
+};
+
 interface SettingsStore {
   fontScale: number;
   tickSoundEnabled: boolean;
@@ -609,12 +658,14 @@ interface SettingsStore {
   currentPage: PageType;
   timezone: string;
   notificationSettings: NotificationSettings;
+  pomodoroSettings: PomodoroSettings;
   setFontScale: (scale: number) => void;
   setTickSound: (enabled: boolean) => void;
   setVoiceEnabled: (enabled: boolean) => void;
   setCurrentPage: (page: PageType) => void;
   setTimezone: (tz: string) => void;
   setNotificationSettings: (settings: Partial<NotificationSettings>) => void;
+  setPomodoroSettings: (settings: Partial<PomodoroSettings>) => void;
 }
 
 const defaultNotificationSettings: NotificationSettings = {
@@ -625,27 +676,35 @@ const defaultNotificationSettings: NotificationSettings = {
 };
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
-  fontScale: loadFromStorage<number>('taskflow_fontscale', 1),
-  tickSoundEnabled: loadFromStorage<boolean>('taskflow_tick', true),
-  voiceEnabled: loadFromStorage<boolean>('taskflow_voice', true),
-  timezone: loadFromStorage<string>('taskflow_timezone', 'Asia/Ho_Chi_Minh'),
-  notificationSettings: loadFromStorage<NotificationSettings>('taskflow_notifications', defaultNotificationSettings),
+  fontScale: loadFromStorage<number>('nw_fontscale', 1),
+  tickSoundEnabled: loadFromStorage<boolean>('nw_tick', true),
+  voiceEnabled: loadFromStorage<boolean>('nw_voice', true),
+  timezone: loadFromStorage<string>('nw_timezone', 'Asia/Ho_Chi_Minh'),
+  notificationSettings: loadFromStorage<NotificationSettings>('nw_notifications', defaultNotificationSettings),
+  pomodoroSettings: loadFromStorage<PomodoroSettings>('nw_pomodoro', defaultPomodoroSettings),
   currentPage: 'tasks',
 
   setFontScale: (scale) => {
-    saveToStorage('taskflow_fontscale', scale);
+    saveToStorage('nw_fontscale', scale);
     document.documentElement.style.setProperty('--font-scale', String(scale));
     set({ fontScale: scale });
   },
-  setTickSound: (enabled) => { saveToStorage('taskflow_tick', enabled); set({ tickSoundEnabled: enabled }); },
-  setVoiceEnabled: (enabled) => { saveToStorage('taskflow_voice', enabled); set({ voiceEnabled: enabled }); },
+  setTickSound: (enabled) => { saveToStorage('nw_tick', enabled); set({ tickSoundEnabled: enabled }); },
+  setVoiceEnabled: (enabled) => { saveToStorage('nw_voice', enabled); set({ voiceEnabled: enabled }); },
   setCurrentPage: (page) => set({ currentPage: page }),
-  setTimezone: (tz) => { saveToStorage('taskflow_timezone', tz); set({ timezone: tz }); },
+  setTimezone: (tz) => { saveToStorage('nw_timezone', tz); set({ timezone: tz }); },
   setNotificationSettings: (partial) => {
     set((prev) => {
       const updated = { ...prev.notificationSettings, ...partial };
-      saveToStorage('taskflow_notifications', updated);
+      saveToStorage('nw_notifications', updated);
       return { notificationSettings: updated };
+    });
+  },
+  setPomodoroSettings: (partial) => {
+    set((prev) => {
+      const updated = { ...prev.pomodoroSettings, ...partial };
+      saveToStorage('nw_pomodoro', updated);
+      return { pomodoroSettings: updated };
     });
   },
 }));

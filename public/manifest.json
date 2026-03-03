@@ -1,12 +1,12 @@
 {
   "name": "NghiemWork",
   "short_name": "NghiemWork",
-  "description": "NghiemWork - Quản lý công việc thông minh với Ma trận Eisenhower",
+  "description": "Quản lý công việc thông minh",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0A0A0F",
   "theme_color": "#00E5CC",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "icons": [
     {
       "src": "/og-image.jpg",

@@ -1,55 +1,52 @@
 import { useTaskStore, useSettingsStore } from '@/stores';
 import { TaskList } from '@/components/features/TaskList';
-import { AddTaskInput } from '@/components/features/AddTaskInput';
-import { CalendarDays, Flame } from 'lucide-react';
-import type {} from '@/types';
+import { TaskTimer } from '@/components/features/TaskTimer';
+import { Plus } from 'lucide-react';
 import { getNowInTimezone } from '@/lib/notifications';
+import { useState, useEffect } from 'react';
+import { AddTaskSheet } from '@/components/features/AddTaskInput';
 
 export default function TasksPage() {
-  const timer = useTaskStore((s) => s.timer);
-  const tasks = useTaskStore((s) => s.tasks);
-  const timezone = useSettingsStore((s) => s.timezone);
-  const pendingCount = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
-  const inProgressCount = tasks.filter(t => t.status === 'in_progress').length;
-  const overdueCount = tasks.filter(t => t.status === 'overdue').length;
+  const timer = useTaskStore(s => s.timer);
+  const timezone = useSettingsStore(s => s.timezone);
+  const [showAdd, setShowAdd] = useState(false);
+  const [now, setNow] = useState(getNowInTimezone(timezone));
 
-  const now = getNowInTimezone(timezone);
+  useEffect(() => {
+    const i = setInterval(() => setNow(getNowInTimezone(timezone)), 1000);
+    return () => clearInterval(i);
+  }, [timezone]);
+
   const dayNames = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
   const dayName = dayNames[now.getDay()];
   const dateStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()}`;
-
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
   const hasTimer = timer.isRunning || timer.isPaused;
 
   return (
-    <div className="flex flex-col h-full px-4" style={{ paddingTop: hasTimer ? '72px' : '0' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between pt-4 pb-4">
+    <div className="flex flex-col h-full px-4" style={{ paddingTop: hasTimer ? '68px' : '0' }}>
+      {/* Simplified Header */}
+      <div className="flex items-center justify-between pt-3 pb-3">
         <div>
-          <p className="text-xs text-[var(--text-muted)] font-medium">{dayName}</p>
-          <h1 className="text-xl font-bold text-[var(--text-primary)]">{dateStr}</h1>
+          <p className="text-[11px] text-[var(--text-muted)] font-medium">{dayName}</p>
+          <p className="text-base font-bold text-[var(--text-primary)]">{dateStr}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {overdueCount > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(248,113,113,0.1)] border border-[rgba(248,113,113,0.2)]">
-              <span className="text-sm font-semibold text-[var(--error)] tabular-nums">{overdueCount}</span>
-              <span className="text-xs text-[var(--text-muted)]">quá hạn</span>
-            </div>
-          )}
-          {inProgressCount > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[rgba(251,191,36,0.1)] border border-[rgba(251,191,36,0.2)]">
-              <Flame size={14} className="text-[var(--warning)]" />
-              <span className="text-sm font-semibold text-[var(--warning)] tabular-nums">{inProgressCount}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-elevated)]">
-            <CalendarDays size={14} className="text-[var(--accent-primary)]" />
-            <span className="text-sm font-semibold text-[var(--accent-primary)] tabular-nums">{pendingCount}</span>
-          </div>
+        <div className="text-right">
+          <p className="text-lg font-mono font-bold text-[var(--accent-primary)] tabular-nums">{timeStr}</p>
         </div>
       </div>
 
       <TaskList />
-      <AddTaskInput />
+
+      {/* Floating Add Button - above Lucy */}
+      <button onClick={() => setShowAdd(true)}
+        className="fixed z-[61] size-11 rounded-full bg-[var(--warning)] text-[var(--bg-base)] flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 124px)', right: '18px' }}
+        aria-label="Thêm việc">
+        <Plus size={22} strokeWidth={2.5} />
+      </button>
+
+      {showAdd && <AddTaskSheet onClose={() => setShowAdd(false)} />}
     </div>
   );
 }

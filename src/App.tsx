@@ -1,19 +1,17 @@
-import { useEffect } from 'react';
-import { useSettingsStore, useAuthStore, useTaskStore, useChatStore, useGamificationStore, useTemplateStore } from '@/stores';
+import { useEffect, useState } from 'react';
+import { useSettingsStore, useAuthStore, useTaskStore, useChatStore, useGamificationStore, useTemplateStore, useTopicStore } from '@/stores';
 import { supabase } from '@/lib/supabase';
 import { checkDeadlineNotifications } from '@/lib/notifications';
 import { BottomNav } from '@/components/layout/BottomNav';
-import { InstallPrompt } from '@/components/features/InstallPrompt';
 import { TaskTimer } from '@/components/features/TaskTimer';
+import { LucyChatFAB } from '@/pages/AIPage';
 import TasksPage from '@/pages/TasksPage';
 import StatsPage from '@/pages/StatsPage';
-import AIPage from '@/pages/AIPage';
 import SettingsPage from '@/pages/SettingsPage';
 import AchievementsPage from '@/pages/AchievementsPage';
 import AuthPage from '@/pages/AuthPage';
 import TemplatesPage from '@/pages/TemplatesPage';
 import FinancePage from '@/pages/FinancePage';
-import WeeklyReviewPage from '@/pages/WeeklyReviewPage';
 
 export default function App() {
   const currentPage = useSettingsStore(s => s.currentPage);
@@ -26,15 +24,29 @@ export default function App() {
   const setLoading = useAuthStore(s => s.setLoading);
   const initTasks = useTaskStore(s => s.initForUser);
   const initChat = useChatStore(s => s.initForUser);
-  const initGamification = useGamificationStore(s => s.initForUser);
+  const initGam = useGamificationStore(s => s.initForUser);
   const initTemplates = useTemplateStore(s => s.initForUser);
+  const initTopics = useTopicStore(s => s.initForUser);
   const tasks = useTaskStore(s => s.tasks);
   const markOverdue = useTaskStore(s => s.markOverdue);
+  const [isLandscape, setIsLandscape] = useState(false);
 
-  // Font scale — set on html root for rem-based sizing
+  // Font scale
+  useEffect(() => { document.documentElement.style.setProperty('--font-scale', String(fontScale)); }, [fontScale]);
+
+  // Detect orientation
   useEffect(() => {
-    document.documentElement.style.setProperty('--font-scale', String(fontScale));
-  }, [fontScale]);
+    const check = () => setIsLandscape(window.innerWidth > window.innerHeight && window.innerWidth > 600);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Set landscape class on body
+  useEffect(() => {
+    document.body.classList.toggle('landscape', isLandscape);
+    document.body.classList.toggle('portrait', !isLandscape);
+  }, [isLandscape]);
 
   // Preload voices
   useEffect(() => {
@@ -51,51 +63,38 @@ export default function App() {
       if (mounted && session?.user) {
         const u = session.user;
         setUser({ id: u.id, email: u.email!, username: u.user_metadata?.username || u.email!.split('@')[0] });
-      } else if (mounted) {
-        setLoading(false);
-      }
+      } else if (mounted) setLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      if (event === 'SIGNED_IN' && session?.user) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
         const u = session.user;
         setUser({ id: u.id, email: u.email!, username: u.user_metadata?.username || u.email!.split('@')[0] });
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setLoading(false);
-      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        const u = session.user;
-        setUser({ id: u.id, email: u.email!, username: u.user_metadata?.username || u.email!.split('@')[0] });
-      }
+      } else if (event === 'SIGNED_OUT') { setUser(null); setLoading(false); }
     });
     return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 
-  // Init stores per user
+  // Init stores
   useEffect(() => {
     if (user) {
-      const userId = user.id === 'guest' ? undefined : user.id;
-      initTasks(userId);
-      initChat(userId);
-      initGamification(userId);
-      initTemplates(userId);
+      const uid = user.id === 'admin' ? 'admin' : user.id;
+      initTasks(uid); initChat(uid); initGam(uid); initTemplates(uid); initTopics(uid);
     }
   }, [user?.id]);
 
   // Mark overdue + notifications
   useEffect(() => {
     if (!user) return;
-    const notifiedSet = new Set<string>();
+    const notified = new Set<string>();
     const check = () => {
       markOverdue();
-      if (notificationSettings.enabled) {
-        checkDeadlineNotifications(tasks, timezone, notificationSettings.beforeDeadline, notifiedSet);
-      }
+      if (notificationSettings.enabled) checkDeadlineNotifications(tasks, timezone, notificationSettings.beforeDeadline, notified);
     };
     check();
-    const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
-  }, [user?.id, tasks.length, timezone, notificationSettings.enabled, notificationSettings.beforeDeadline]);
+    const i = setInterval(check, 30000);
+    return () => clearInterval(i);
+  }, [user?.id, tasks.length, timezone, notificationSettings.enabled]);
 
   if (isLoading) {
     return (
@@ -117,21 +116,22 @@ export default function App() {
       case 'tasks': return <TasksPage />;
       case 'stats': return <StatsPage />;
       case 'achievements': return <AchievementsPage />;
-      case 'ai': return <AIPage />;
       case 'settings': return <SettingsPage />;
       case 'templates': return <TemplatesPage />;
       case 'finance': return <FinancePage />;
-      case 'weekly_review': return <WeeklyReviewPage />;
       default: return <TasksPage />;
     }
   };
 
   return (
-    <div className="min-h-[100dvh] max-w-lg mx-auto flex flex-col bg-[var(--bg-base)] overflow-x-hidden">
-      <InstallPrompt />
+    <div className={`min-h-[100dvh] flex bg-[var(--bg-base)] overflow-x-hidden ${isLandscape ? 'flex-row' : 'flex-col'}`}>
       <TaskTimer />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden">{renderPage()}</main>
+      <main className={`flex-1 overflow-y-auto overflow-x-hidden ${isLandscape ? 'ml-16' : ''}`}
+        style={{ paddingBottom: isLandscape ? '0' : 'calc(56px + env(safe-area-inset-bottom, 0px))' }}>
+        {renderPage()}
+      </main>
       <BottomNav />
+      <LucyChatFAB />
     </div>
   );
 }

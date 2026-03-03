@@ -1,55 +1,59 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 
-interface SwipeState {
-  isSwiping: boolean;
-  offsetX: number;
-}
-
-interface UseSwipeOptions {
+interface SwipeOptions {
   threshold?: number;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }
 
-export function useSwipeGesture({ threshold = 80, onSwipeLeft, onSwipeRight }: UseSwipeOptions) {
-  const [swipeState, setSwipeState] = useState<SwipeState>({ isSwiping: false, offsetX: 0 });
+export function useSwipeGesture({ threshold = 80, onSwipeLeft, onSwipeRight }: SwipeOptions) {
   const startX = useRef(0);
+  const currentX = useRef(0);
+  const isSwiping = useRef(false);
   const startY = useRef(0);
   const isHorizontal = useRef<boolean | null>(null);
 
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    startX.current = e.touches[0].clientX;
-    startY.current = e.touches[0].clientY;
-    isHorizontal.current = null;
-    setSwipeState({ isSwiping: true, offsetX: 0 });
-  }, []);
+  const handlers = {
+    onTouchStart: useCallback((e: React.TouchEvent) => {
+      startX.current = e.touches[0].clientX;
+      startY.current = e.touches[0].clientY;
+      currentX.current = 0;
+      isSwiping.current = false;
+      isHorizontal.current = null;
+    }, []),
 
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    const deltaX = e.touches[0].clientX - startX.current;
-    const deltaY = e.touches[0].clientY - startY.current;
+    onTouchMove: useCallback((e: React.TouchEvent) => {
+      const diffX = e.touches[0].clientX - startX.current;
+      const diffY = e.touches[0].clientY - startY.current;
 
-    if (isHorizontal.current === null) {
-      isHorizontal.current = Math.abs(deltaX) > Math.abs(deltaY);
-    }
+      if (isHorizontal.current === null) {
+        if (Math.abs(diffX) > 10 || Math.abs(diffY) > 10) {
+          isHorizontal.current = Math.abs(diffX) > Math.abs(diffY);
+        }
+      }
 
-    if (isHorizontal.current) {
-      setSwipeState({ isSwiping: true, offsetX: deltaX });
-    }
-  }, []);
+      if (isHorizontal.current) {
+        isSwiping.current = true;
+        currentX.current = diffX;
+      }
+    }, []),
 
-  const onTouchEnd = useCallback(() => {
-    const { offsetX } = swipeState;
-    if (offsetX < -threshold && onSwipeLeft) {
-      onSwipeLeft();
-    } else if (offsetX > threshold && onSwipeRight) {
-      onSwipeRight();
-    }
-    setSwipeState({ isSwiping: false, offsetX: 0 });
-    isHorizontal.current = null;
-  }, [swipeState, threshold, onSwipeLeft, onSwipeRight]);
+    onTouchEnd: useCallback(() => {
+      if (isSwiping.current) {
+        if (currentX.current < -threshold && onSwipeLeft) onSwipeLeft();
+        else if (currentX.current > threshold && onSwipeRight) onSwipeRight();
+      }
+      isSwiping.current = false;
+      currentX.current = 0;
+      isHorizontal.current = null;
+    }, [threshold, onSwipeLeft, onSwipeRight]),
+  };
 
   return {
-    swipeState,
-    handlers: { onTouchStart, onTouchMove, onTouchEnd },
+    swipeState: {
+      isSwiping: isSwiping.current,
+      offsetX: currentX.current,
+    },
+    handlers,
   };
 }

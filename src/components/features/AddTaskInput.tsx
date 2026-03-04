@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTaskStore, useSettingsStore } from '@/stores';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { X, Calendar, RotateCcw, Clock, Mic, MicOff, Check } from 'lucide-react';
+import { X, Mic, MicOff, Check } from 'lucide-react';
 import type { EisenhowerQuadrant, RecurringConfig, RecurringType } from '@/types';
 import { QUADRANT_LABELS } from '@/types';
 
@@ -18,9 +18,10 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
   const [showNotes, setShowNotes] = useState(false);
   const [finType, setFinType] = useState<'income' | 'expense'>('expense');
   const [finAmount, setFinAmount] = useState(0);
+  const [isGroup, setIsGroup] = useState(false);
 
   const addTask = useTaskStore(s => s.addTask);
-  const { isListening, transcript, startListening, stopListening, resetTranscript, isSupported } = useSpeechRecognition();
+  const { isListening, transcript, startListening, stopListening, isSupported } = useSpeechRecognition();
 
   if (transcript && transcript !== value) setValue(transcript);
 
@@ -28,25 +29,25 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
     const trimmed = value.trim();
     if (!trimmed) return;
     let deadline: number | undefined;
-    if (deadlineDate) {
+    if (showDeadline && deadlineDate) {
       deadline = new Date(`${deadlineDate}T${deadlineTime || '23:59'}:00`).getTime();
     }
     // Enforce: LÀM NGAY needs deadline
     if (quadrant === 'do_first' && !deadline) {
-      const now = new Date();
-      now.setHours(23, 59, 0, 0);
+      const now = new Date(); now.setHours(23, 59, 0, 0);
       deadline = now.getTime();
-      // No need to set deadlineDate - it's just for storage
     }
-    const recurring: RecurringConfig = { type: recurringType };
+    // Enforce: LÊN LỊCH needs deadline not today
+    if (quadrant === 'schedule' && !deadline) {
+      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(23, 59, 0, 0);
+      deadline = tomorrow.getTime();
+    }
+    const recurring: RecurringConfig = { type: showRecurring ? recurringType : 'none' };
     const finance = showFinance && finAmount > 0 ? { type: finType, amount: finAmount } : undefined;
-    addTask(trimmed, quadrant, deadline, recurring, deadlineDate, deadlineTime, undefined, finance, undefined, undefined);
-    if (notes.trim()) {
-      // Update notes after creation
-      const tasks = useTaskStore.getState().tasks;
-      const lastTask = tasks[tasks.length - 1];
-      if (lastTask) useTaskStore.getState().updateTask(lastTask.id, { notes });
-    }
+    addTask(trimmed, quadrant, deadline, recurring, showDeadline ? deadlineDate : undefined, showDeadline ? deadlineTime : undefined, finance, undefined, isGroup, {
+      showDeadline, showRecurring, showFinance, showNotes,
+      notes: showNotes ? notes : undefined,
+    });
     onClose();
   };
 
@@ -85,7 +86,7 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
-          {/* Eisenhower - always visible */}
+          {/* Eisenhower */}
           <div className="grid grid-cols-2 gap-1.5">
             {(Object.keys(QUADRANT_LABELS) as EisenhowerQuadrant[]).map(q => {
               const cfg = QUADRANT_LABELS[q];
@@ -99,7 +100,25 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
             })}
           </div>
 
-          {/* Toggle options - side by side checkboxes */}
+          {/* Task type: single vs group */}
+          <div className="flex gap-2">
+            <button onClick={() => setIsGroup(false)}
+              className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium min-h-[38px] border ${!isGroup ? 'border-[var(--border-accent)] bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
+              <div className={`size-4 rounded-full border-2 flex items-center justify-center ${!isGroup ? 'border-[var(--accent-primary)]' : 'border-[var(--text-muted)]'}`}>
+                {!isGroup && <div className="size-2 rounded-full bg-[var(--accent-primary)]" />}
+              </div>
+              Việc đơn
+            </button>
+            <button onClick={() => setIsGroup(true)}
+              className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium min-h-[38px] border ${isGroup ? 'border-[var(--border-accent)] bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
+              <div className={`size-4 rounded-full border-2 flex items-center justify-center ${isGroup ? 'border-[var(--accent-primary)]' : 'border-[var(--text-muted)]'}`}>
+                {isGroup && <div className="size-2 rounded-full bg-[var(--accent-primary)]" />}
+              </div>
+              Nhóm việc
+            </button>
+          </div>
+
+          {/* Toggle options - side by side */}
           <div className="grid grid-cols-2 gap-2">
             {toggleOptions.map(opt => (
               <button key={opt.key} onClick={opt.toggle}
@@ -112,7 +131,6 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
             ))}
           </div>
 
-          {/* Deadline */}
           {showDeadline && (
             <div className="space-y-2 p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
               <div className="flex gap-2">
@@ -124,7 +142,6 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {/* Recurring */}
           {showRecurring && (
             <div className="flex gap-1.5 p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
               {(['none', 'daily', 'weekdays', 'weekly'] as RecurringType[]).map(r => (
@@ -136,7 +153,6 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {/* Finance */}
           {showFinance && (
             <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-2">
               <div className="flex gap-2">
@@ -149,7 +165,6 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {/* Notes */}
           {showNotes && (
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ghi chú..." rows={2}
               className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] resize-none" />
@@ -167,5 +182,4 @@ export function AddTaskSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-// Keep backward compat export
 export function AddTaskInput() { return null; }

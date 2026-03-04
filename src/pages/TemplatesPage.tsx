@@ -1,21 +1,78 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTemplateStore, useTopicStore } from '@/stores';
 import { convertYoutubeUrl, isYoutubeUrl } from '@/lib/youtubeUtils';
 import {
   Plus, Trash2, Edit3, X, Save, ListTree, Youtube, Type, DollarSign, ArrowRight,
-  Download, Upload, Tag, Check, Image as ImageIcon,
+  Download, Upload, Tag, Check, Image as ImageIcon, Eye,
 } from 'lucide-react';
 import type { TaskTemplate, EisenhowerQuadrant, MediaBlock, TaskFinance, RecurringType } from '@/types';
 import { QUADRANT_LABELS } from '@/types';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+// ── Template Info Modal ──
+function TemplateInfoModal({ template, onClose }: { template: TaskTemplate; onClose: () => void }) {
+  const topics = useTopicStore(s => s.topics);
+  const topic = topics.find(t => t.id === template.topicId);
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/70" onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[85vh] bg-[var(--bg-elevated)] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-[var(--border-subtle)]">
+          <div className="flex items-center gap-2">
+            <Eye size={14} className="text-[var(--accent-primary)]" />
+            <h2 className="text-sm font-bold text-[var(--text-primary)]">Chi tiết mẫu</h2>
+          </div>
+          <button onClick={onClose} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)]"><X size={16} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <h3 className="text-base font-semibold text-[var(--text-primary)]">{template.title}</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            {topic && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[rgba(96,165,250,0.15)] text-[var(--info)]"><Tag size={8} className="inline" /> {topic.name}</span>}
+            {template.xpReward && <span className="text-[10px] font-mono text-[var(--accent-primary)]">+{template.xpReward}XP</span>}
+            {template.finance && <span className={`text-[10px] font-mono ${template.finance.type === 'income' ? 'text-[var(--success)]' : 'text-[var(--error)]'}`}>{template.finance.type === 'income' ? '+' : '-'}{template.finance.amount.toLocaleString('vi-VN')}đ</span>}
+          </div>
+          {template.notes && <div className="px-3 py-2 rounded-xl bg-[var(--bg-surface)]"><p className="text-xs text-[var(--text-primary)] whitespace-pre-wrap">{template.notes}</p></div>}
+          {template.subtasks && template.subtasks.length > 0 && (
+            <div>
+              <p className="text-[10px] text-[var(--text-muted)] mb-1"><ListTree size={10} className="inline" /> Việc con ({template.subtasks.length})</p>
+              {template.subtasks.map((sub, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] mb-1">
+                  <div className="size-3 rounded-full border border-[var(--text-muted)]" />
+                  <span className="text-xs text-[var(--text-primary)]">{sub.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {template.media && template.media.length > 0 && (
+            <div>
+              <p className="text-[10px] text-[var(--text-muted)] mb-1">Đa phương tiện</p>
+              {template.media.map(block => (
+                <div key={block.id} className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)] mb-2">
+                  {block.type === 'youtube' && <div className="aspect-video"><iframe src={block.content} className="w-full h-full" allowFullScreen /></div>}
+                  {block.type === 'image' && <img src={block.content} alt="" className="w-full max-h-48 object-cover" />}
+                  {block.type === 'text' && <p className="px-3 py-2 text-xs text-[var(--text-primary)] whitespace-pre-wrap">{block.content}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+          {template.richContent && (
+            <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
+              <div className="text-xs text-[var(--text-primary)] [&_img]:max-w-full [&_img]:rounded-lg" dangerouslySetInnerHTML={{ __html: template.richContent }} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Add to Todo Dialog ──
 function AddToTodoDialog({ template, onClose }: { template: TaskTemplate; onClose: () => void }) {
   const createTaskFromTemplate = useTemplateStore(s => s.createTaskFromTemplate);
   const [deadlineDate, setDeadlineDate] = useState('');
   const [deadlineTime, setDeadlineTime] = useState('');
-  const [quadrant, setQuadrant] = useState<EisenhowerQuadrant>(template.quadrant);
+  const [quadrant, setQuadrant] = useState<EisenhowerQuadrant>('do_first');
   const [recurringType, setRecurringType] = useState<RecurringType>(template.recurring?.type || 'none');
   const [notes, setNotes] = useState('');
   const [finType, setFinType] = useState<'income' | 'expense'>(template.finance?.type || 'expense');
@@ -27,7 +84,7 @@ function AddToTodoDialog({ template, onClose }: { template: TaskTemplate; onClos
 
   const handleAdd = () => {
     const finance: TaskFinance | undefined = showFinance && finAmount > 0 ? { type: finType, amount: finAmount } : template.finance;
-    createTaskFromTemplate(template.id, finance, deadlineDate || undefined, deadlineTime || undefined, quadrant, { type: recurringType }, notes || undefined);
+    createTaskFromTemplate(template.id, finance, showDeadline ? deadlineDate || undefined : undefined, showDeadline ? deadlineTime || undefined : undefined, quadrant, { type: showRecurring ? recurringType : 'none' }, notes || undefined);
     onClose();
   };
 
@@ -46,7 +103,7 @@ function AddToTodoDialog({ template, onClose }: { template: TaskTemplate; onClos
           <button onClick={onClose} className="text-[var(--text-muted)]"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
-          <p className="text-xs text-[var(--text-secondary)]">{template.title}</p>
+          <p className="text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)] rounded-lg px-3 py-2">{template.title}</p>
 
           {/* Quadrant */}
           <div className="grid grid-cols-2 gap-1.5">
@@ -62,7 +119,7 @@ function AddToTodoDialog({ template, onClose }: { template: TaskTemplate; onClos
             })}
           </div>
 
-          {/* Toggle options */}
+          {/* Toggles */}
           <div className="grid grid-cols-2 gap-2">
             {toggles.map(opt => (
               <button key={opt.key} onClick={opt.toggle}
@@ -108,7 +165,7 @@ function AddToTodoDialog({ template, onClose }: { template: TaskTemplate; onClos
           )}
 
           <button onClick={handleAdd} className="w-full py-3 rounded-xl text-sm font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] active:opacity-80 min-h-[44px] flex items-center justify-center gap-2">
-            <ArrowRight size={16} /> Thêm vào danh sách
+            <ArrowRight size={16} /> Nhân bản vào DS việc
           </button>
         </div>
       </div>
@@ -125,19 +182,20 @@ function TemplateEditor({ template, onSave, onCancel }: {
   const topics = useTopicStore(s => s.topics);
   const addTopic = useTopicStore(s => s.addTopic);
   const [title, setTitle] = useState(template?.title || '');
-  const [quadrant, setQuadrant] = useState<EisenhowerQuadrant>(template?.quadrant || 'do_first');
   const [notes, setNotes] = useState(template?.notes || '');
-  const [subtasks, setSubtasks] = useState<{ title: string; quadrant: EisenhowerQuadrant }[]>(template?.subtasks || []);
+  const [subtasks, setSubtasks] = useState<{ title: string }[]>(template?.subtasks || []);
   const [newSub, setNewSub] = useState('');
   const [media, setMedia] = useState<MediaBlock[]>(template?.media || []);
   const [mediaInput, setMediaInput] = useState('');
   const [mediaType, setMediaType] = useState<'auto' | 'text'>('auto');
   const [finance, setFinance] = useState<TaskFinance | undefined>(template?.finance);
   const [showFinance, setShowFinance] = useState(!!template?.finance);
+  const [showNotes, setShowNotes] = useState(!!template?.notes);
   const [xpReward, setXpReward] = useState(template?.xpReward || 0);
   const [richContent, setRichContent] = useState(template?.richContent || '');
   const [topicId, setTopicId] = useState(template?.topicId || '');
   const [newTopic, setNewTopic] = useState('');
+  const [showNewTopic, setShowNewTopic] = useState(false);
 
   const handleAddMedia = () => {
     const val = mediaInput.trim();
@@ -147,8 +205,6 @@ function TemplateEditor({ template, onSave, onCancel }: {
     } else if (isYoutubeUrl(val)) {
       const embed = convertYoutubeUrl(val);
       if (embed) setMedia([...media, { id: genId(), type: 'youtube', content: embed }]);
-    } else if (/\.(jpg|jpeg|png|gif|webp|svg)/i.test(val)) {
-      setMedia([...media, { id: genId(), type: 'image', content: val }]);
     } else {
       setMedia([...media, { id: genId(), type: 'image', content: val }]);
     }
@@ -158,8 +214,9 @@ function TemplateEditor({ template, onSave, onCancel }: {
   const handleSave = () => {
     if (!title.trim()) return;
     onSave({
-      title: title.trim(), quadrant, recurring: { type: 'none' },
-      notes: notes || undefined, richContent: richContent || undefined,
+      title: title.trim(), recurring: { type: 'none' },
+      notes: showNotes ? notes || undefined : undefined,
+      richContent: richContent || undefined,
       subtasks: subtasks.length > 0 ? subtasks : undefined,
       media: media.length > 0 ? media : undefined,
       finance: showFinance ? finance : undefined,
@@ -168,6 +225,11 @@ function TemplateEditor({ template, onSave, onCancel }: {
       isGroup: subtasks.length > 0,
     });
   };
+
+  const toggles = [
+    { key: 'finance', label: '💰 Thu chi', active: showFinance, toggle: () => { setShowFinance(!showFinance); if (!finance) setFinance({ type: 'expense', amount: 0 }); } },
+    { key: 'notes', label: '📝 Ghi chú', active: showNotes, toggle: () => setShowNotes(!showNotes) },
+  ];
 
   return (
     <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border-accent)] p-4 space-y-3 animate-slide-up">
@@ -179,61 +241,63 @@ function TemplateEditor({ template, onSave, onCancel }: {
       <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Tên việc mẫu"
         className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] min-h-[44px]" />
 
-      <div className="grid grid-cols-2 gap-1.5">
-        {(Object.keys(QUADRANT_LABELS) as EisenhowerQuadrant[]).map(q => {
-          const cfg = QUADRANT_LABELS[q];
-          return (
-            <button key={q} onClick={() => setQuadrant(q)}
-              className={`py-2 rounded-lg text-[10px] font-medium min-h-[34px] border flex items-center justify-center gap-1 ${quadrant === q ? 'border-current' : 'border-transparent bg-[var(--bg-surface)]'}`}
-              style={quadrant === q ? { color: cfg.color, backgroundColor: `${cfg.color}15` } : {}}>
-              {cfg.icon} {cfg.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Topic */}
-      <div>
-        <label className="text-[10px] text-[var(--text-muted)] mb-1 flex items-center gap-1"><Tag size={10} /> Chủ đề *</label>
-        <div className="flex gap-2">
-          <select value={topicId} onChange={e => setTopicId(e.target.value)}
-            className="flex-1 bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] min-h-[34px]">
-            <option value="">Chọn chủ đề</option>
-            {topics.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <div className="flex gap-1">
-            <input type="text" value={newTopic} onChange={e => setNewTopic(e.target.value)} placeholder="+ Mới"
-              className="w-20 bg-[var(--bg-surface)] rounded-lg px-2 py-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] min-h-[34px]" />
-            <button onClick={() => { if (newTopic.trim()) { const id = addTopic(newTopic.trim()); setTopicId(id); setNewTopic(''); } }}
-              className="size-8 rounded-lg bg-[var(--accent-dim)] flex items-center justify-center text-[var(--accent-primary)]"><Plus size={12} /></button>
+      {/* Topic - compact redesign */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Tag size={12} className="text-[var(--text-muted)]" />
+        {topics.map(t => (
+          <button key={t.id} onClick={() => setTopicId(topicId === t.id ? '' : t.id)}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-medium border transition-colors ${
+              topicId === t.id ? 'border-[var(--accent-primary)] bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]'
+            }`}>
+            {t.name}
+          </button>
+        ))}
+        {showNewTopic ? (
+          <div className="flex items-center gap-1">
+            <input type="text" value={newTopic} onChange={e => setNewTopic(e.target.value)} placeholder="Tên" autoFocus
+              onKeyDown={e => { if (e.key === 'Enter' && newTopic.trim()) { const id = addTopic(newTopic.trim()); setTopicId(id); setNewTopic(''); setShowNewTopic(false); } }}
+              className="w-20 bg-[var(--bg-surface)] rounded-lg px-2 py-1 text-[10px] text-[var(--text-primary)] outline-none border border-[var(--border-subtle)]" />
+            <button onClick={() => { if (newTopic.trim()) { const id = addTopic(newTopic.trim()); setTopicId(id); setNewTopic(''); setShowNewTopic(false); } }}
+              className="size-6 rounded-lg bg-[var(--accent-primary)] flex items-center justify-center text-[var(--bg-base)]"><Check size={10} /></button>
+            <button onClick={() => setShowNewTopic(false)} className="text-[var(--text-muted)]"><X size={12} /></button>
           </div>
-        </div>
+        ) : (
+          <button onClick={() => setShowNewTopic(true)} className="px-2 py-1 rounded-full text-[10px] border border-dashed border-[var(--border-subtle)] text-[var(--text-muted)]">+ Mới</button>
+        )}
       </div>
 
-      {/* XP + Finance side by side */}
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label className="text-[10px] text-[var(--text-muted)]">EXP thưởng</label>
+      {/* Side by side toggles + XP */}
+      <div className="grid grid-cols-3 gap-2">
+        {toggles.map(opt => (
+          <button key={opt.key} onClick={opt.toggle}
+            className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-medium min-h-[34px] border ${opt.active ? 'border-[var(--border-accent)] bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
+            <div className={`size-3.5 rounded border flex items-center justify-center ${opt.active ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)]' : 'border-[var(--text-muted)]'}`}>
+              {opt.active && <Check size={8} className="text-[var(--bg-base)]" />}
+            </div>
+            {opt.label}
+          </button>
+        ))}
+        <div className="flex items-center gap-1 px-2.5 py-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+          <span className="text-[9px] text-[var(--text-muted)]">XP</span>
           <input type="number" value={xpReward || ''} onChange={e => setXpReward(Math.max(0, parseInt(e.target.value) || 0))}
-            placeholder="0" className="w-full bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] min-h-[34px] font-mono" inputMode="numeric" />
-        </div>
-        <div className="flex-1">
-          <label className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
-            <button onClick={() => { setShowFinance(!showFinance); if (!finance) setFinance({ type: 'expense', amount: 0 }); }}
-              className={`size-3.5 rounded border flex items-center justify-center ${showFinance ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)]' : 'border-[var(--text-muted)]'}`}>
-              {showFinance && <Check size={8} className="text-[var(--bg-base)]" />}
-            </button>
-            Thu chi
-          </label>
-          {showFinance && finance && (
-            <input type="number" value={finance.amount || ''} onChange={e => setFinance({ ...finance, amount: Math.max(0, parseInt(e.target.value) || 0) })}
-              placeholder="0" className="w-full bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] min-h-[34px] font-mono" inputMode="numeric" />
-          )}
+            placeholder="0" className="w-full bg-transparent text-xs text-[var(--text-primary)] outline-none font-mono min-h-[20px]" inputMode="numeric" />
         </div>
       </div>
 
-      <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ghi chú hướng dẫn..." rows={2}
-        className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] resize-none" />
+      {showFinance && finance && (
+        <div className="flex gap-2 p-2 rounded-lg bg-[var(--bg-surface)]">
+          <select value={finance.type} onChange={e => setFinance({ ...finance, type: e.target.value as any })} className="bg-[var(--bg-elevated)] rounded-lg px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] min-h-[32px]">
+            <option value="income">Thu</option><option value="expense">Chi</option>
+          </select>
+          <input type="number" value={finance.amount || ''} onChange={e => setFinance({ ...finance, amount: Math.max(0, parseInt(e.target.value) || 0) })}
+            placeholder="Số tiền" className="flex-1 bg-[var(--bg-elevated)] rounded-lg px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] min-h-[32px] font-mono" inputMode="numeric" />
+        </div>
+      )}
+
+      {showNotes && (
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ghi chú hướng dẫn..." rows={2}
+          className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] resize-none" />
+      )}
 
       {/* Subtasks */}
       <div>
@@ -246,7 +310,7 @@ function TemplateEditor({ template, onSave, onCancel }: {
         ))}
         <div className="flex gap-2">
           <input type="text" value={newSub} onChange={e => setNewSub(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && newSub.trim()) { setSubtasks([...subtasks, { title: newSub.trim(), quadrant }]); setNewSub(''); } }}
+            onKeyDown={e => { if (e.key === 'Enter' && newSub.trim()) { setSubtasks([...subtasks, { title: newSub.trim() }]); setNewSub(''); } }}
             placeholder="+ Việc con" className="flex-1 bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] min-h-[34px]" />
         </div>
       </div>
@@ -278,13 +342,13 @@ function TemplateEditor({ template, onSave, onCancel }: {
         </div>
       </div>
 
-      {/* Rich content editor */}
+      {/* Rich content */}
       <div>
-        <p className="text-[10px] text-[var(--text-muted)] mb-1">Nội dung bài viết (copy-paste từ nguồn khác)</p>
+        <p className="text-[10px] text-[var(--text-muted)] mb-1">Nội dung bài viết (copy-paste)</p>
         <div contentEditable suppressContentEditableWarning
           onBlur={e => setRichContent(e.currentTarget.innerHTML)}
           dangerouslySetInnerHTML={{ __html: richContent }}
-          className="w-full min-h-[80px] bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] overflow-y-auto max-h-40 [&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-2" />
+          className="w-full min-h-[60px] bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] overflow-y-auto max-h-40 [&_img]:max-w-full [&_img]:rounded-lg [&_img]:my-2" />
       </div>
 
       <button onClick={handleSave} disabled={!title.trim()}
@@ -302,6 +366,7 @@ export default function TemplatesPage() {
   const [showEditor, setShowEditor] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TaskTemplate | null>(null);
   const [addingToTodo, setAddingToTodo] = useState<TaskTemplate | null>(null);
+  const [viewingTemplate, setViewingTemplate] = useState<TaskTemplate | null>(null);
   const [tab, setTab] = useState<'single' | 'group'>('single');
   const [topicFilter, setTopicFilter] = useState<string>('all');
 
@@ -334,8 +399,7 @@ export default function TemplatesPage() {
     if (!file) return;
     file.text().then(json => {
       const count = importTemplates(json);
-      if (count > 0) alert(`Đã nhập ${count} mẫu`);
-      else alert('Không nhập được mẫu nào');
+      alert(count > 0 ? `Đã nhập ${count} mẫu` : 'Không nhập được mẫu nào');
     });
     e.target.value = '';
   };
@@ -356,7 +420,7 @@ export default function TemplatesPage() {
         </div>
       </div>
 
-      {/* Tabs: Single vs Group */}
+      {/* Tabs */}
       <div className="flex gap-0.5 p-0.5 bg-[var(--bg-elevated)] rounded-xl mb-3">
         <button onClick={() => setTab('single')}
           className={`flex-1 py-2 rounded-lg text-xs font-medium min-h-[36px] flex items-center justify-center gap-1.5 ${tab === 'single' ? 'bg-[var(--bg-surface)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
@@ -368,16 +432,16 @@ export default function TemplatesPage() {
         </button>
       </div>
 
-      {/* Topic tabs */}
+      {/* Topic filter */}
       {topicCounts.length > 0 && (
         <div className="flex gap-1 mb-3 overflow-x-auto pb-0.5">
           <button onClick={() => setTopicFilter('all')}
-            className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[9px] font-medium min-h-[26px] ${topicFilter === 'all' ? 'bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>
+            className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[9px] font-medium min-h-[26px] ${topicFilter === 'all' ? 'bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>
             Tất cả
           </button>
           {topicCounts.map(t => (
             <button key={t.id} onClick={() => setTopicFilter(topicFilter === t.id ? 'all' : t.id)}
-              className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[9px] font-medium min-h-[26px] flex items-center gap-1 ${topicFilter === t.id ? 'bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>
+              className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[9px] font-medium min-h-[26px] flex items-center gap-1 ${topicFilter === t.id ? 'bg-[var(--accent-dim)] text-[var(--accent-primary)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>
               {t.name} <span className="font-mono">{t.count}</span>
             </button>
           ))}
@@ -394,16 +458,17 @@ export default function TemplatesPage() {
       ) : (
         <div className="space-y-1.5">
           {displayTemplates.map(template => {
-            const q = QUADRANT_LABELS[template.quadrant];
             const topic = topics.find(t => t.id === template.topicId);
+            // Find which group templates contain this single template
+            const parentGroups = tab === 'single' ? groupTemplates.filter(g => g.subtasks?.some(s => s.title === template.title)) : [];
             return (
-              <div key={template.id} className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border-subtle)] p-3">
+              <div key={template.id} className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border-subtle)] p-3 active:border-[var(--border-accent)] transition-colors">
                 <div className="flex items-start gap-2">
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingTemplate(template)}>
                     <p className="text-sm font-medium text-[var(--text-primary)] break-words">{template.title}</p>
                     <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                      <span className="text-[9px] font-medium" style={{ color: q.color }}>{q.icon} {q.label}</span>
                       {topic && <span className="text-[9px] text-[var(--info)] flex items-center gap-0.5"><Tag size={7} /> {topic.name}</span>}
+                      {parentGroups.length > 0 && <span className="text-[9px] text-[var(--text-muted)]">📂 {parentGroups.map(g => g.title).join(', ')}</span>}
                       {template.subtasks && template.subtasks.length > 0 && <span className="text-[9px] text-[var(--text-muted)]"><ListTree size={7} className="inline" /> {template.subtasks.length}</span>}
                       {template.xpReward && <span className="text-[9px] text-[var(--accent-primary)] font-mono">+{template.xpReward}XP</span>}
                       {template.finance && <span className={`text-[9px] font-mono ${template.finance.type === 'income' ? 'text-[var(--success)]' : 'text-[var(--error)]'}`}>{template.finance.type === 'income' ? '+' : '-'}{template.finance.amount.toLocaleString('vi-VN')}đ</span>}
@@ -422,6 +487,7 @@ export default function TemplatesPage() {
       )}
 
       {addingToTodo && <AddToTodoDialog template={addingToTodo} onClose={() => setAddingToTodo(null)} />}
+      {viewingTemplate && <TemplateInfoModal template={viewingTemplate} onClose={() => setViewingTemplate(null)} />}
     </div>
   );
 }

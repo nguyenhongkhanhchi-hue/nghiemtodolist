@@ -2,13 +2,13 @@ import { useMemo, useState } from 'react';
 import { useTaskStore, useGamificationStore, useSettingsStore } from '@/stores';
 import { getNowInTimezone } from '@/lib/notifications';
 import { generateDailySummary } from '@/lib/dataUtils';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Award, BarChart3, Target, Flame, Share2, Copy, Check, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { TrendingUp, Clock, Award, Target, Flame, Share2, Copy, Check, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import type { EisenhowerQuadrant } from '@/types';
 import { QUADRANT_LABELS } from '@/types';
 
 const QUADRANT_NAMES: Record<EisenhowerQuadrant, string> = { do_first: 'Làm ngay', schedule: 'Lên lịch', delegate: 'Ủy thác', eliminate: 'Loại bỏ' };
-const PIE_COLORS = ['#F87171', '#00E5CC', '#FBBF24', '#5A5A6E'];
+const PIE_COLORS = ['#F87171', '#60A5FA', '#FBBF24', '#5A5A6E'];
 const HEATMAP_COLORS = ['var(--bg-surface)', 'rgba(0,229,204,0.2)', 'rgba(0,229,204,0.4)', 'rgba(0,229,204,0.6)', 'rgba(0,229,204,0.9)'];
 
 function CalendarHeatmap() {
@@ -68,7 +68,7 @@ function DailySummary() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const todayEnd = todayStart + 86400000;
   const todayDone = tasks.filter(t => t.status === 'done' && t.completedAt && t.completedAt >= todayStart && t.completedAt < todayEnd);
-  const todayPending = tasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && !t.parentId);
+  const todayPending = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress' || t.status === 'paused');
   const totalTime = todayDone.reduce((s, t) => s + (t.duration || 0), 0);
   const fmt = (s: number) => { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h${m}m` : `${m}m`; };
 
@@ -99,7 +99,6 @@ function DailySummary() {
   );
 }
 
-// Weekly Review integrated into Stats
 function WeeklyReview() {
   const tasks = useTaskStore(s => s.tasks);
   const timezone = useSettingsStore(s => s.timezone);
@@ -116,8 +115,7 @@ function WeeklyReview() {
     return ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((label, i) => {
       const ds = new Date(weekStart); ds.setDate(ds.getDate() + i);
       const de = new Date(ds); de.setDate(de.getDate() + 1);
-      const dt = weekTasks.filter(t => t.completedAt! >= ds.getTime() && t.completedAt! < de.getTime());
-      return { name: label, tasks: dt.length };
+      return { name: label, tasks: weekTasks.filter(t => t.completedAt! >= ds.getTime() && t.completedAt! < de.getTime()).length };
     });
   }, [weekTasks, weekStart.getTime()]);
 
@@ -153,15 +151,13 @@ function WeeklyReview() {
 export default function StatsPage() {
   const tasks = useTaskStore(s => s.tasks);
   const stats = useMemo(() => {
-    const pending = tasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && !t.parentId).length;
-    const done = tasks.filter(t => t.status === 'done' && !t.parentId).length;
-    const overdue = tasks.filter(t => t.status === 'overdue' && !t.parentId).length;
-    const total = pending + done + overdue;
+    const done = tasks.filter(t => t.status === 'done').length;
+    const total = tasks.length;
     const completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
-    const totalTime = tasks.filter(t => t.status === 'done' && t.duration).reduce((s, t) => s + (t.duration || 0), 0);
+    const totalTime = tasks.filter(t => t.duration).reduce((s, t) => s + (t.duration || 0), 0);
     const avgTime = done > 0 ? Math.round(totalTime / done) : 0;
     const byQuadrant = (['do_first', 'schedule', 'delegate', 'eliminate'] as EisenhowerQuadrant[])
-      .map(q => ({ name: QUADRANT_NAMES[q], value: tasks.filter(t => t.quadrant === q && !t.parentId).length }))
+      .map(q => ({ name: QUADRANT_NAMES[q], value: tasks.filter(t => t.quadrant === q).length }))
       .filter(d => d.value > 0);
     return { done, completionRate, totalTime, avgTime, byQuadrant };
   }, [tasks]);

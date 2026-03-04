@@ -1,7 +1,7 @@
 export type EisenhowerQuadrant = 'do_first' | 'schedule' | 'delegate' | 'eliminate';
-export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'overdue';
+export type TaskStatus = 'pending' | 'in_progress' | 'paused' | 'done' | 'overdue';
 export type RecurringType = 'none' | 'daily' | 'weekdays' | 'weekly' | 'custom';
-export type TabType = 'pending' | 'done' | 'overdue';
+export type TabType = 'pending' | 'in_progress' | 'paused' | 'done' | 'overdue';
 export type PageType = 'tasks' | 'stats' | 'settings' | 'achievements' | 'templates' | 'finance';
 
 export interface RecurringConfig {
@@ -46,37 +46,36 @@ export interface Task {
   deadline?: number;
   deadlineDate?: string;
   deadlineTime?: string;
-  duration?: number;
+  duration?: number; // cumulative total seconds
   order: number;
   recurring: RecurringConfig;
   recurringLabel?: string;
   notes?: string;
-  parentId?: string;
-  children?: string[];
   finance?: TaskFinance;
   templateId?: string;
-  dependsOn?: string[];
-  xpReward?: number;
   isGroup?: boolean;
+  showDeadline?: boolean;
+  showRecurring?: boolean;
+  showFinance?: boolean;
+  showNotes?: boolean;
 }
 
 export interface TaskTemplate {
   id: string;
   title: string;
-  quadrant: EisenhowerQuadrant;
   recurring: RecurringConfig;
   notes?: string;
   media?: MediaBlock[];
   richContent?: string;
-  subtasks?: { title: string; quadrant: EisenhowerQuadrant }[];
+  subtasks?: { title: string }[];
   finance?: TaskFinance;
   xpReward?: number;
   topicId?: string;
   topicParams?: TopicParam[];
   isGroup?: boolean;
-  childTemplateIds?: string[];
   createdAt: number;
   updatedAt?: number;
+  groupIds?: string[]; // for group templates: child template ids
 }
 
 export interface TimerState {
@@ -158,7 +157,7 @@ export interface NotificationSettings {
 
 export const QUADRANT_LABELS: Record<EisenhowerQuadrant, { label: string; icon: string; color: string; desc: string }> = {
   do_first: { label: 'Làm ngay', icon: '🔴', color: '#F87171', desc: 'Gấp + Quan trọng' },
-  schedule: { label: 'Lên lịch', icon: '🔵', color: '#00E5CC', desc: 'Quan trọng' },
+  schedule: { label: 'Lên lịch', icon: '🔵', color: '#60A5FA', desc: 'Quan trọng' },
   delegate: { label: 'Ủy thác', icon: '🟡', color: '#FBBF24', desc: 'Gấp' },
   eliminate: { label: 'Loại bỏ', icon: '⚪', color: '#5A5A6E', desc: 'Không gấp, không QT' },
 };

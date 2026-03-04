@@ -43,15 +43,13 @@ interface TaskStore {
   tasks: Task[];
   activeTab: TabType;
   timer: TimerState;
-  searchQuery: string;
   _userId: string | undefined;
   initForUser: (userId?: string) => void;
   setActiveTab: (tab: TabType) => void;
-  setSearchQuery: (q: string) => void;
-  addTask: (title: string, quadrant?: EisenhowerQuadrant, deadline?: number, recurring?: RecurringConfig, deadlineDate?: string, deadlineTime?: string, parentId?: string, finance?: TaskFinance, templateId?: string, xpReward?: number, isGroup?: boolean) => string;
+  addTask: (title: string, quadrant?: EisenhowerQuadrant, deadline?: number, recurring?: RecurringConfig, deadlineDate?: string, deadlineTime?: string, finance?: TaskFinance, templateId?: string, isGroup?: boolean, opts?: { showDeadline?: boolean; showRecurring?: boolean; showFinance?: boolean; showNotes?: boolean; notes?: string }) => string;
   updateTask: (id: string, updates: Partial<Task>) => void;
   removeTask: (id: string) => void;
-  completeTask: (id: string, duration?: number) => void;
+  completeTask: (id: string) => void;
   restoreTask: (id: string) => void;
   reorderTasks: (fromIndex: number, toIndex: number) => void;
   startTimer: (taskId: string) => void;
@@ -61,11 +59,6 @@ interface TaskStore {
   tickTimer: () => void;
   clearAllData: () => void;
   markOverdue: () => void;
-  assignAsSubtask: (taskId: string, parentId: string) => void;
-  unassignSubtask: (taskId: string) => void;
-  canStartTask: (taskId: string) => boolean;
-  hasChildren: (taskId: string) => boolean;
-  getGroupProgress: (taskId: string) => { total: number; done: number; percent: number };
 }
 
 const defaultTimer: TimerState = {
@@ -77,7 +70,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   activeTab: 'pending',
   timer: { ...defaultTimer },
-  searchQuery: '',
   _userId: undefined,
 
   initForUser: (userId) => {
@@ -85,25 +77,25 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set({ tasks: loadFromStorage<Task[]>(key, []), _userId: userId, timer: { ...defaultTimer } });
   },
   setActiveTab: (tab) => set({ activeTab: tab }),
-  setSearchQuery: (q) => set({ searchQuery: q }),
 
-  addTask: (title, quadrant = 'do_first', deadline, recurring = { type: 'none' }, deadlineDate, deadlineTime, parentId, finance, templateId, xpReward, isGroup) => {
+  addTask: (title, quadrant = 'do_first', deadline, recurring = { type: 'none' }, deadlineDate, deadlineTime, finance, templateId, isGroup, opts) => {
     const tasks = get().tasks;
     const id = generateId();
     const newTask: Task = {
       id, title, status: 'pending', quadrant,
       createdAt: Date.now(), deadline, deadlineDate, deadlineTime,
-      order: tasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && !t.parentId).length,
+      order: tasks.filter(t => t.status === 'pending').length,
       recurring: recurring || { type: 'none' },
       recurringLabel: recurring && recurring.type !== 'none' ? title : undefined,
-      parentId, finance, templateId, xpReward, isGroup,
+      finance, templateId, isGroup,
+      showDeadline: opts?.showDeadline ?? !!deadline,
+      showRecurring: opts?.showRecurring ?? (recurring?.type !== 'none'),
+      showFinance: opts?.showFinance ?? !!finance,
+      showNotes: opts?.showNotes ?? !!opts?.notes,
+      notes: opts?.notes,
     };
-    let updated = [...tasks, newTask];
-    if (parentId) {
-      updated = updated.map(t => t.id === parentId ? { ...t, children: [...(t.children || []), id] } : t);
-    }
-    const key = getUserKey('nw_tasks', get()._userId);
-    saveToStorage(key, updated);
+    const updated = [...tasks, newTask];
+    saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
     set({ tasks: updated });
     return id;
   },
@@ -115,53 +107,31 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   removeTask: (id) => {
-    const tasks = get().tasks;
-    const taskToRemove = tasks.find(t => t.id === id);
-    const idsToRemove = new Set<string>();
-    const collectIds = (tid: string) => {
-      idsToRemove.add(tid);
-      tasks.filter(t => t.parentId === tid).forEach(t => collectIds(t.id));
-    };
-    collectIds(id);
-    let updated = tasks.filter(t => !idsToRemove.has(t.id));
-    if (taskToRemove?.parentId) {
-      updated = updated.map(t => t.id === taskToRemove.parentId ? { ...t, children: (t.children || []).filter(c => c !== id) } : t);
-    }
-    updated = updated.map(t => t.dependsOn?.includes(id) ? { ...t, dependsOn: t.dependsOn.filter(d => d !== id) } : t);
+    const updated = get().tasks.filter(t => t.id !== id);
     saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
     set({ tasks: updated });
   },
 
-  completeTask: (id, duration) => {
-    const timer = get().timer;
-    const timerElapsed = timer.taskId === id ? timer.elapsed : 0;
-    const finalDuration = duration || timerElapsed || 0;
-    let updated = get().tasks.map(t =>
-      t.id === id ? { ...t, status: 'done' as const, completedAt: Date.now(), duration: (t.duration || 0) + finalDuration } : t
-    );
-    // If group completed, complete all children
+  completeTask: (id) => {
     const task = get().tasks.find(t => t.id === id);
-    if (task?.isGroup || task?.children?.length) {
-      const childIds = new Set(task.children || []);
-      updated = updated.map(t => childIds.has(t.id) && t.status !== 'done' ? { ...t, status: 'done' as const, completedAt: Date.now() } : t);
-    }
-    // If child completed, check if all siblings done -> complete parent
-    if (task?.parentId) {
-      const parent = get().tasks.find(t => t.id === task.parentId);
-      if (parent) {
-        const siblings = updated.filter(t => t.parentId === parent.id);
-        if (siblings.every(s => s.status === 'done')) {
-          updated = updated.map(t => t.id === parent.id ? { ...t, status: 'done' as const, completedAt: Date.now() } : t);
-        }
-      }
-    }
+    if (!task) return;
+    const tz = useSettingsStore.getState().timezone;
+    const now = getNowInTimezone(tz).getTime();
+    const isOnTime = !task.deadline || now <= task.deadline;
+    const xpEarned = isOnTime ? 10 : 5;
+
+    const updated = get().tasks.map(t =>
+      t.id === id ? { ...t, status: 'done' as const, completedAt: Date.now() } : t
+    );
     saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
-    set({ tasks: updated, timer: timer.taskId === id ? { ...defaultTimer } : get().timer });
-    // Gamification
-    if (task) {
-      const tz = useSettingsStore.getState().timezone;
-      useGamificationStore.getState().onTaskCompleted(task.quadrant, finalDuration, tz, task.xpReward || 0);
-    }
+    // Stop timer if running for this task
+    const timer = get().timer;
+    set({
+      tasks: updated,
+      timer: timer.taskId === id ? { ...defaultTimer } : timer,
+    });
+    // Gamification: auto XP
+    useGamificationStore.getState().onTaskCompleted(task.quadrant, task.duration || 0, tz, xpEarned);
   },
 
   restoreTask: (id) => {
@@ -172,12 +142,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   reorderTasks: (fromIndex, toIndex) => {
     const tasks = [...get().tasks];
-    const pending = tasks.filter(t => (t.status === 'pending' || t.status === 'in_progress') && !t.parentId).sort((a, b) => a.order - b.order);
+    const pending = tasks.filter(t => t.status === 'pending').sort((a, b) => a.order - b.order);
     if (fromIndex < 0 || fromIndex >= pending.length || toIndex < 0 || toIndex >= pending.length) return;
     const [moved] = pending.splice(fromIndex, 1);
     pending.splice(toIndex, 0, moved);
     pending.forEach((t, i) => { t.order = i; });
-    const rest = tasks.filter(t => (t.status !== 'pending' && t.status !== 'in_progress') || t.parentId);
+    const rest = tasks.filter(t => t.status !== 'pending');
     const updated = [...pending, ...rest];
     saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
     set({ tasks: updated });
@@ -205,7 +175,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   stopTimer: () => {
     const t = get().timer;
     if (t.taskId) {
-      const updated = get().tasks.map(tk => tk.id === t.taskId && tk.status === 'in_progress' ? { ...tk, status: 'pending' as const } : tk);
+      // Cumulative duration: add elapsed to task's existing duration
+      const elapsed = t.elapsed;
+      const updated = get().tasks.map(tk => {
+        if (tk.id === t.taskId) {
+          const newDuration = (tk.duration || 0) + elapsed;
+          // Set status to paused (has time but not complete)
+          const newStatus = tk.status === 'in_progress' ? 'paused' as const : tk.status;
+          return { ...tk, duration: newDuration, status: newStatus };
+        }
+        return tk;
+      });
       saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
       set({ tasks: updated, timer: { ...defaultTimer } });
     } else set({ timer: { ...defaultTimer } });
@@ -227,9 +207,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const now = getNowInTimezone(tz).getTime();
     let changed = false;
     const updated = get().tasks.map(t => {
-      if (t.status === 'pending' && t.deadline && t.deadline < now) {
+      if ((t.status === 'pending' || t.status === 'paused') && t.deadline && t.deadline < now) {
         changed = true;
-        // Auto move schedule -> do_first if deadline is today
         return { ...t, status: 'overdue' as const };
       }
       // Auto move schedule to do_first if deadline is today
@@ -247,40 +226,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
       set({ tasks: updated });
     }
-  },
-  assignAsSubtask: (taskId, parentId) => {
-    let updated = get().tasks.map(t => {
-      if (t.id === taskId) return { ...t, parentId };
-      if (t.id === parentId) return { ...t, children: [...(t.children || []), taskId], isGroup: true };
-      return t;
-    });
-    saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
-    set({ tasks: updated });
-  },
-  unassignSubtask: (taskId) => {
-    const task = get().tasks.find(t => t.id === taskId);
-    if (!task?.parentId) return;
-    const pid = task.parentId;
-    let updated = get().tasks.map(t => {
-      if (t.id === taskId) return { ...t, parentId: undefined };
-      if (t.id === pid) return { ...t, children: (t.children || []).filter(c => c !== taskId) };
-      return t;
-    });
-    saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
-    set({ tasks: updated });
-  },
-  canStartTask: (taskId) => {
-    const tasks = get().tasks;
-    const task = tasks.find(t => t.id === taskId);
-    if (!task?.dependsOn?.length) return true;
-    return task.dependsOn.every(d => tasks.find(t => t.id === d)?.status === 'done');
-  },
-  hasChildren: (taskId) => get().tasks.some(t => t.parentId === taskId),
-  getGroupProgress: (taskId) => {
-    const children = get().tasks.filter(t => t.parentId === taskId);
-    const total = children.length;
-    const done = children.filter(c => c.status === 'done').length;
-    return { total, done, percent: total > 0 ? Math.round((done / total) * 100) : 0 };
   },
 }));
 
@@ -340,6 +285,7 @@ interface TemplateStore {
   createTaskFromTemplate: (templateId: string, financeOverride?: TaskFinance, deadlineDate?: string, deadlineTime?: string, quadrantOverride?: EisenhowerQuadrant, recurringOverride?: RecurringConfig, notesOverride?: string) => void;
   exportTemplates: () => string;
   importTemplates: (json: string) => number;
+  hasTemplateForTitle: (title: string) => boolean;
 }
 
 export const useTemplateStore = create<TemplateStore>((set, get) => ({
@@ -370,7 +316,7 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     const template = get().templates.find(t => t.id === templateId);
     if (!template) return;
     const taskStore = useTaskStore.getState();
-    const quadrant = quadrantOverride || template.quadrant;
+    const quadrant = quadrantOverride || 'do_first';
     const recurring = recurringOverride || template.recurring;
     let deadline: number | undefined;
     if (deadlineDate) {
@@ -378,18 +324,11 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
       deadline = new Date(`${deadlineDate}T${timeStr}:00`).getTime();
     }
     const finance = financeOverride || template.finance;
-    const isGroup = template.isGroup || (template.subtasks && template.subtasks.length > 0);
-    const parentId = taskStore.addTask(
+    taskStore.addTask(
       template.title, quadrant, deadline, recurring,
-      deadlineDate, deadlineTime, undefined, finance, templateId, template.xpReward, isGroup,
+      deadlineDate, deadlineTime, finance, templateId, template.isGroup,
+      { notes: notesOverride || template.notes, showDeadline: !!deadline, showRecurring: recurring?.type !== 'none', showFinance: !!finance, showNotes: !!(notesOverride || template.notes) },
     );
-    if (notesOverride) taskStore.updateTask(parentId, { notes: notesOverride });
-    else if (template.notes) taskStore.updateTask(parentId, { notes: template.notes });
-    if (template.subtasks) {
-      template.subtasks.forEach(sub => {
-        taskStore.addTask(sub.title, sub.quadrant, deadline, { type: 'none' }, deadlineDate, deadlineTime, parentId);
-      });
-    }
   },
   exportTemplates: () => {
     const templates = get().templates;
@@ -409,13 +348,14 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
         const topicStore = useTopicStore.getState();
         const existingTopics = topicStore.topics;
         data.topics.forEach((t: any) => {
-          if (!existingTopics.find(et => et.name === t.name)) {
-            topicStore.addTopic(t.name);
-          }
+          if (!existingTopics.find(et => et.name === t.name)) topicStore.addTopic(t.name);
         });
       }
       return newTemplates.length;
     } catch { return 0; }
+  },
+  hasTemplateForTitle: (title) => {
+    return get().templates.some(t => t.title.toLowerCase() === title.toLowerCase());
   },
 }));
 
@@ -455,7 +395,7 @@ interface GamificationStore {
   state: GamificationState;
   _userId: string | undefined;
   initForUser: (userId?: string) => void;
-  onTaskCompleted: (quadrant: EisenhowerQuadrant, duration: number, timezone: string, bonusXp?: number) => void;
+  onTaskCompleted: (quadrant: EisenhowerQuadrant, duration: number, timezone: string, xpEarned: number) => void;
   claimReward: (rewardId: string) => void;
   addCustomReward: (reward: Omit<Reward, 'id' | 'claimed'>) => void;
   removeReward: (rewardId: string) => void;
@@ -480,15 +420,13 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     } else set({ state: getDefaultGamificationState(), _userId: userId });
   },
   _save: () => saveToStorage(getUserKey('nw_gamification', get()._userId), get().state),
-  onTaskCompleted: (quadrant, duration, timezone, bonusXp = 0) => {
+  onTaskCompleted: (quadrant, duration, timezone, xpEarned = 10) => {
     const s = { ...get().state };
     const now = getNowInTimezone(timezone);
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    let xp = quadrant === 'do_first' ? 20 : quadrant === 'schedule' ? 15 : quadrant === 'delegate' ? 10 : 5;
-    xp += bonusXp;
     s.totalTasksCompleted += 1;
     s.totalTimerSeconds += duration;
-    s.xp += xp;
+    s.xp += xpEarned;
     if (now.getHours() < 9) s.earlyBirdCount += 1;
     if (s.lastActiveDate !== todayStr) {
       const y = new Date(now); y.setDate(y.getDate() - 1);
@@ -525,7 +463,7 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
   },
   addCustomReward: (reward) => {
     const s = { ...get().state };
-    s.rewards = [...s.rewards, { ...reward, id: `cr_${generateId()}`, claimed: false }];
+    s.rewards = [...s.rewards, { ...reward, id: `cr_${Date.now().toString(36)}`, claimed: false }];
     set({ state: s }); get()._save();
   },
   removeReward: (id) => {
@@ -538,7 +476,7 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
   },
   addCustomAchievement: (ach) => {
     const s = { ...get().state };
-    s.achievements = [...s.achievements, { ...ach, id: `ca_${generateId()}`, isCustom: true }];
+    s.achievements = [...s.achievements, { ...ach, id: `ca_${Date.now().toString(36)}`, isCustom: true }];
     set({ state: s }); get()._save();
   },
   removeAchievement: (id) => {

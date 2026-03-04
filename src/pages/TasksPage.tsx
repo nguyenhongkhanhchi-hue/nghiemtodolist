@@ -1,6 +1,5 @@
 import { useTaskStore, useSettingsStore } from '@/stores';
 import { TaskList } from '@/components/features/TaskList';
-import { TaskTimer } from '@/components/features/TaskTimer';
 import { Plus } from 'lucide-react';
 import { getNowInTimezone } from '@/lib/notifications';
 import { useState, useEffect } from 'react';
@@ -24,9 +23,9 @@ export default function TasksPage() {
   const hasTimer = timer.isRunning || timer.isPaused;
 
   return (
-    <div className="flex flex-col h-full px-4" style={{ paddingTop: hasTimer ? '68px' : '0' }}>
-      {/* Simplified Header */}
-      <div className="flex items-center justify-between pt-3 pb-3">
+    <div className="flex flex-col h-full px-4" style={{ paddingTop: hasTimer ? '60px' : '0' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between pt-3 pb-2">
         <div>
           <p className="text-[11px] text-[var(--text-muted)] font-medium">{dayName}</p>
           <p className="text-base font-bold text-[var(--text-primary)]">{dateStr}</p>
@@ -38,7 +37,7 @@ export default function TasksPage() {
 
       <TaskList />
 
-      {/* Floating Add Button - above Lucy */}
+      {/* Floating Add Button */}
       <button onClick={() => setShowAdd(true)}
         className="fixed z-[61] size-11 rounded-full bg-[var(--warning)] text-[var(--bg-base)] flex items-center justify-center shadow-lg active:scale-95 transition-transform"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 124px)', right: '18px' }}

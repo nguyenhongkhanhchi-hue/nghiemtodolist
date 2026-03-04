@@ -1,8 +1,6 @@
 import { useState } from 'react';
-import { useTaskStore, useSettingsStore } from '@/stores';
-import {
-  X, Save, Calendar, RotateCcw, Plus, DollarSign, ChevronDown, ChevronRight, ListTree, Link2, Check,
-} from 'lucide-react';
+import { useTaskStore } from '@/stores';
+import { X, Save, Check } from 'lucide-react';
 import type { Task, EisenhowerQuadrant, RecurringType, TaskFinance } from '@/types';
 import { QUADRANT_LABELS } from '@/types';
 
@@ -10,9 +8,6 @@ interface TaskEditModalProps { task: Task; onClose: () => void; }
 
 export function TaskEditModal({ task, onClose }: TaskEditModalProps) {
   const updateTask = useTaskStore(s => s.updateTask);
-  const tasks = useTaskStore(s => s.tasks);
-  const assignAsSubtask = useTaskStore(s => s.assignAsSubtask);
-  const unassignSubtask = useTaskStore(s => s.unassignSubtask);
 
   const [title, setTitle] = useState(task.title);
   const [quadrant, setQuadrant] = useState<EisenhowerQuadrant>(task.quadrant);
@@ -21,31 +16,34 @@ export function TaskEditModal({ task, onClose }: TaskEditModalProps) {
   const [recurringType, setRecurringType] = useState<RecurringType>(task.recurring?.type || 'none');
   const [notes, setNotes] = useState(task.notes || '');
   const [finance, setFinance] = useState<TaskFinance | undefined>(task.finance);
-  const [showSubtasks, setShowSubtasks] = useState(true);
-  const [showAddChild, setShowAddChild] = useState(false);
-  const [showDeps, setShowDeps] = useState(false);
-  const [xpReward, setXpReward] = useState(task.xpReward || 0);
-  const [showDeadline, setShowDeadline] = useState(!!task.deadline);
-  const [showRecurring, setShowRecurring] = useState(task.recurring?.type !== 'none');
-  const [showFinance, setShowFinance] = useState(!!task.finance);
-  const [showNotes, setShowNotes] = useState(!!task.notes);
-
-  const subtasks = tasks.filter(t => t.parentId === task.id);
-  const availableTasks = tasks.filter(t => !t.parentId && t.id !== task.id && t.status !== 'done');
-  const availableDeps = tasks.filter(t => t.id !== task.id && t.status !== 'done' && t.parentId !== task.id);
+  const [showDeadline, setShowDeadline] = useState(task.showDeadline ?? !!task.deadline);
+  const [showRecurring, setShowRecurring] = useState(task.showRecurring ?? task.recurring?.type !== 'none');
+  const [showFinance, setShowFinance] = useState(task.showFinance ?? !!task.finance);
+  const [showNotes, setShowNotes] = useState(task.showNotes ?? !!task.notes);
 
   const handleSave = () => {
     let deadline: number | undefined;
     if (showDeadline && deadlineDate) {
       deadline = new Date(`${deadlineDate}T${deadlineTime || '23:59'}:00`).getTime();
     }
+    // Enforce: LÀM NGAY requires deadline
+    if (quadrant === 'do_first' && !deadline) {
+      const now = new Date(); now.setHours(23, 59, 0, 0);
+      deadline = now.getTime();
+    }
+    // Enforce: LÊN LỊCH requires deadline not today
+    if (quadrant === 'schedule' && !deadline) {
+      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(23, 59, 0, 0);
+      deadline = tomorrow.getTime();
+    }
     updateTask(task.id, {
       title: title.trim() || task.title, quadrant, deadline,
-      deadlineDate: showDeadline ? deadlineDate : undefined, deadlineTime: showDeadline ? deadlineTime : undefined,
+      deadlineDate: showDeadline ? deadlineDate : undefined,
+      deadlineTime: showDeadline ? deadlineTime : undefined,
       recurring: { type: showRecurring ? recurringType : 'none' },
       notes: showNotes ? notes : undefined,
       finance: showFinance && finance ? finance : undefined,
-      xpReward: xpReward > 0 ? xpReward : undefined,
+      showDeadline, showRecurring, showFinance, showNotes,
     });
     onClose();
   };
@@ -72,24 +70,18 @@ export function TaskEditModal({ task, onClose }: TaskEditModalProps) {
           <input type="text" value={title} onChange={e => setTitle(e.target.value)}
             className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-3 text-sm text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] focus:border-[var(--accent-primary)] min-h-[44px]" />
 
+          {/* Eisenhower */}
           <div className="grid grid-cols-2 gap-1.5">
             {(Object.keys(QUADRANT_LABELS) as EisenhowerQuadrant[]).map(q => {
               const cfg = QUADRANT_LABELS[q];
               return (
                 <button key={q} onClick={() => setQuadrant(q)}
-                  className={`py-2 rounded-lg text-[10px] font-medium min-h-[36px] border flex items-center justify-center gap-1 ${quadrant === q ? 'border-current' : 'border-transparent bg-[var(--bg-surface)]'}`}
+                  className={`py-2 rounded-lg text-[11px] font-medium min-h-[36px] border flex items-center justify-center gap-1 ${quadrant === q ? 'border-current' : 'border-transparent bg-[var(--bg-surface)]'}`}
                   style={quadrant === q ? { color: cfg.color, backgroundColor: `${cfg.color}15` } : {}}>
                   {cfg.icon} {cfg.label}
                 </button>
               );
             })}
-          </div>
-
-          {/* XP */}
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] text-[var(--text-muted)]">EXP:</label>
-            <input type="number" value={xpReward || ''} onChange={e => setXpReward(Math.max(0, parseInt(e.target.value) || 0))}
-              className="w-20 bg-[var(--bg-surface)] rounded-lg px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] font-mono min-h-[32px]" inputMode="numeric" />
           </div>
 
           {/* Toggle options - side by side */}
@@ -138,54 +130,6 @@ export function TaskEditModal({ task, onClose }: TaskEditModalProps) {
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ghi chú..." rows={3}
               className="w-full bg-[var(--bg-surface)] rounded-xl px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none border border-[var(--border-subtle)] resize-none" />
           )}
-
-          {/* Subtasks */}
-          <div>
-            <button onClick={() => setShowSubtasks(!showSubtasks)} className="flex items-center gap-1.5 text-[10px] font-medium text-[var(--text-secondary)] mb-1.5">
-              {showSubtasks ? <ChevronDown size={12} /> : <ChevronRight size={12} />} <ListTree size={12} /> Việc con ({subtasks.length})
-            </button>
-            {showSubtasks && (
-              <div className="space-y-1 ml-3">
-                {subtasks.map(sub => (
-                  <div key={sub.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--bg-surface)]">
-                    <span className="text-[10px] flex-1 text-[var(--text-primary)]">{sub.title}</span>
-                    <button onClick={() => unassignSubtask(sub.id)} className="text-[var(--text-muted)]"><X size={10} /></button>
-                  </div>
-                ))}
-                <button onClick={() => setShowAddChild(!showAddChild)} className="text-[10px] text-[var(--accent-primary)] px-2 py-1"><Plus size={10} className="inline" /> Chọn việc con</button>
-                {showAddChild && availableTasks.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)]">
-                    {availableTasks.map(t => (
-                      <button key={t.id} onClick={() => { assignAsSubtask(t.id, task.id); setShowAddChild(false); }}
-                        className="w-full text-left px-3 py-1.5 text-[10px] text-[var(--text-primary)] border-b border-[var(--border-subtle)] last:border-b-0 min-h-[32px]">{t.title}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Dependencies */}
-          <div>
-            <button onClick={() => setShowDeps(!showDeps)} className="flex items-center gap-1.5 text-[10px] font-medium text-[var(--text-secondary)] mb-1.5">
-              {showDeps ? <ChevronDown size={12} /> : <ChevronRight size={12} />} <Link2 size={12} /> Phụ thuộc ({task.dependsOn?.length || 0})
-            </button>
-            {showDeps && (
-              <div className="space-y-1 ml-3 max-h-32 overflow-y-auto">
-                {availableDeps.slice(0, 15).map(dep => {
-                  const sel = task.dependsOn?.includes(dep.id);
-                  return (
-                    <button key={dep.id} onClick={() => {
-                      const cur = task.dependsOn || [];
-                      updateTask(task.id, { dependsOn: sel ? cur.filter(d => d !== dep.id) : [...cur, dep.id] });
-                    }} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[10px] text-left min-h-[30px] ${sel ? 'bg-[rgba(96,165,250,0.1)] text-[var(--info)]' : 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'}`}>
-                      {sel ? '✓' : '○'} {dep.title}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore, useTaskStore, useSettingsStore, useGamificationStore, useTemplateStore } from '@/stores';
 import { streamAIChat, parseAIResponse, type AIAction } from '@/lib/aiService';
-import { Send, Bot, User, Trash2, Sparkles, Zap, Mic, MicOff, X } from 'lucide-react';
+import { Send, Bot, User, Trash2, Sparkles, Mic, MicOff, X } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import type { EisenhowerQuadrant } from '@/types';
 
@@ -19,15 +19,12 @@ export function LucyChatFAB() {
 
   return (
     <>
-      {/* FAB Button */}
       <button onClick={() => setOpen(!open)}
-        className="fixed z-[60] size-12 rounded-full bg-[var(--accent-primary)] text-[var(--bg-base)] flex items-center justify-center shadow-lg active:scale-95 transition-transform animate-glow-pulse"
+        className="fixed z-[60] size-12 rounded-full bg-[var(--accent-primary)] text-[var(--bg-base)] flex items-center justify-center shadow-lg active:scale-95 transition-transform"
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 68px)', right: '16px' }}
         aria-label="Lucy AI">
         {open ? <X size={22} /> : <Sparkles size={22} />}
       </button>
-
-      {/* Chat Panel */}
       {open && (
         <div className="fixed inset-0 z-[55] flex flex-col bg-[var(--bg-base)]" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           <LucyChat onClose={() => setOpen(false)} />
@@ -67,12 +64,12 @@ function LucyChat({ onClose }: { onClose: () => void }) {
     switch (action.type) {
       case 'ADD_TASK': {
         if (!action.title) return '⚠️ Thiếu tên việc';
-        addTask(action.title, (action.quadrant as EisenhowerQuadrant) || 'do_first', undefined, action.recurring ? { type: 'daily' } : { type: 'none' });
+        addTask(action.title, (action.quadrant as EisenhowerQuadrant) || 'do_first');
         return `✅ Đã thêm "${action.title}"`;
       }
       case 'COMPLETE_TASK': {
         const s = (action.search || '').toLowerCase();
-        const t = tasks.find(t => (t.status === 'pending' || t.status === 'in_progress') && t.title.toLowerCase().includes(s));
+        const t = tasks.find(t => t.status !== 'done' && t.title.toLowerCase().includes(s));
         if (t) { completeTask(t.id); return `✅ Hoàn thành "${t.title}"`; }
         return `⚠️ Không tìm thấy "${action.search}"`;
       }
@@ -91,7 +88,7 @@ function LucyChat({ onClose }: { onClose: () => void }) {
       case 'START_TIMER': {
         if (timer.isRunning || timer.isPaused) return '⚠️ Timer đang chạy';
         const s = (action.search || '').toLowerCase();
-        const t = tasks.find(t => (t.status === 'pending' || t.status === 'in_progress') && t.title.toLowerCase().includes(s));
+        const t = tasks.find(t => t.status !== 'done' && t.status !== 'overdue' && t.title.toLowerCase().includes(s));
         if (t) { startTimer(t.id); return `⏱️ Đếm giờ "${t.title}"`; }
         return `⚠️ Không tìm thấy "${action.search}"`;
       }
@@ -106,9 +103,8 @@ function LucyChat({ onClose }: { onClose: () => void }) {
       case 'ADD_TEMPLATE': {
         if (!action.title) return '⚠️ Thiếu tên mẫu';
         addTemplate({
-          title: action.title, quadrant: (action.quadrant as EisenhowerQuadrant) || 'do_first',
-          recurring: { type: 'none' }, notes: action.notes,
-          subtasks: action.subtasks?.map(s => ({ title: s, quadrant: (action.quadrant as EisenhowerQuadrant) || 'do_first' })),
+          title: action.title, recurring: { type: 'none' }, notes: action.notes,
+          subtasks: action.subtasks?.map(s => ({ title: s })),
           xpReward: action.xpReward,
         });
         return `📋 Đã tạo mẫu "${action.title}"`;
@@ -116,7 +112,7 @@ function LucyChat({ onClose }: { onClose: () => void }) {
       case 'USE_TEMPLATE': {
         const s = (action.search || '').toLowerCase();
         const t = templates.find(t => t.title.toLowerCase().includes(s));
-        if (t) { createTaskFromTemplate(t.id); return `📄 Tạo việc từ mẫu "${t.title}"`; }
+        if (t) { createTaskFromTemplate(t.id); return `📄 Nhân bản từ mẫu "${t.title}"`; }
         return `⚠️ Không tìm thấy mẫu "${action.search}"`;
       }
       case 'ADD_REWARD': {
@@ -172,14 +168,15 @@ function LucyChat({ onClose }: { onClose: () => void }) {
     isStreamingRef.current = true;
 
     const taskContext = {
-      pending: tasks.filter(t => t.status === 'pending' && !t.parentId).map(t => ({ id: t.id, title: t.title, quadrant: t.quadrant, deadline: t.deadline, finance: t.finance, xpReward: t.xpReward })),
+      pending: tasks.filter(t => t.status === 'pending').map(t => ({ id: t.id, title: t.title, quadrant: t.quadrant, deadline: t.deadline, finance: t.finance })),
       inProgress: tasks.filter(t => t.status === 'in_progress').map(t => ({ id: t.id, title: t.title })),
-      done: tasks.filter(t => t.status === 'done' && !t.parentId).slice(0, 10).map(t => ({ id: t.id, title: t.title, duration: t.duration })),
+      paused: tasks.filter(t => t.status === 'paused').map(t => ({ id: t.id, title: t.title, duration: t.duration })),
+      done: tasks.filter(t => t.status === 'done').slice(0, 10).map(t => ({ id: t.id, title: t.title, duration: t.duration })),
       overdue: tasks.filter(t => t.status === 'overdue').map(t => ({ id: t.id, title: t.title })),
       timerRunning: timer.isRunning, timerPaused: timer.isPaused,
       timerTask: tasks.find(t => t.id === timer.taskId)?.title, timerElapsed: timer.elapsed,
       templates: templates.map(t => ({ id: t.id, title: t.title, xpReward: t.xpReward })),
-      gamification: { xp: gamState.xp, level: gamState.level, streak: gamState.streak, rewards: gamState.rewards.map(r => ({ id: r.id, title: r.title, xpCost: r.xpCost, claimed: r.claimed })), achievements: gamState.achievements.map(a => ({ id: a.id, title: a.title, unlockedAt: a.unlockedAt, isCustom: a.isCustom })) },
+      gamification: { xp: gamState.xp, level: gamState.level, streak: gamState.streak },
     };
 
     const chatHistory = [...messages.slice(-20).map(m => ({ role: m.role, content: m.content })), { role: 'user' as const, content: trimmed }];
@@ -201,13 +198,12 @@ function LucyChat({ onClose }: { onClose: () => void }) {
   const suggestions = [
     { text: 'Tạo mẫu "Routine sáng"', icon: '📋' },
     { text: 'Gợi ý phần thưởng', icon: '🎁' },
-    { text: 'Hoàn thành tất cả', icon: '✅' },
     { text: 'Thống kê hôm nay', icon: '📊' },
+    { text: 'Hoàn thành tất cả', icon: '✅' },
   ];
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-[var(--border-subtle)]">
         <div className="flex items-center gap-2.5">
           <div className="size-8 rounded-xl bg-[var(--accent-dim)] flex items-center justify-center">
@@ -224,7 +220,6 @@ function LucyChat({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {messages.length === 0 && !streamingContent ? (
           <div className="flex flex-col items-center justify-center py-8">
@@ -273,7 +268,6 @@ function LucyChat({ onClose }: { onClose: () => void }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="px-4 pb-4 pt-2 border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2">
           {isSupported && (

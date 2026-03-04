@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTaskStore, useSettingsStore, useTemplateStore } from '@/stores';
-import { convertYoutubeUrl, isYoutubeUrl } from '@/lib/youtubeUtils';
 import { formatTimeRemaining, formatDeadlineDisplay } from '@/lib/notifications';
 import {
   X, Calendar, Clock, RotateCcw, DollarSign,
-  ListTree, Youtube, Play, CheckCircle2, AlertTriangle,
-  Link2, Eye, Edit3, Save,
+  Play, CheckCircle2, Copy, Check, FileText,
 } from 'lucide-react';
 import type { Task, TaskFinance } from '@/types';
 import { QUADRANT_LABELS } from '@/types';
@@ -21,53 +19,52 @@ function formatDuration(s: number) {
 interface TaskViewModalProps { task: Task; onClose: () => void; onEdit: () => void; }
 
 export function TaskViewModal({ task, onClose, onEdit }: TaskViewModalProps) {
-  const tasks = useTaskStore(s => s.tasks);
   const updateTask = useTaskStore(s => s.updateTask);
-  const completeTask = useTaskStore(s => s.completeTask);
   const startTimer = useTaskStore(s => s.startTimer);
   const timer = useTaskStore(s => s.timer);
-  const hasChildren = useTaskStore(s => s.hasChildren);
-  const getGroupProgress = useTaskStore(s => s.getGroupProgress);
-  const timezone = useSettingsStore(s => s.timezone);
   const templates = useTemplateStore(s => s.templates);
+  const addTemplate = useTemplateStore(s => s.addTemplate);
+  const timezone = useSettingsStore(s => s.timezone);
 
-  const subtasks = tasks.filter(t => t.parentId === task.id).sort((a, b) => a.order - b.order);
-  const template = task.templateId ? templates.find(t => t.id === task.templateId) : null;
   const qConfig = QUADRANT_LABELS[task.quadrant];
   const deadlineInfo = task.deadline ? formatTimeRemaining(task.deadline, timezone) : null;
   const deadlineDisplay = task.deadline ? formatDeadlineDisplay(task.deadline, timezone) : null;
-  const dependencies = task.dependsOn?.map(id => tasks.find(t => t.id === id)).filter(Boolean) as Task[] || [];
-  const isTimerRunnable = !hasChildren(task.id) && (task.status === 'pending' || task.status === 'in_progress');
-  const isTimerActive = timer.taskId === task.id && (timer.isRunning || timer.isPaused);
-  const progress = hasChildren(task.id) ? getGroupProgress(task.id) : null;
+  const canTimer = task.status !== 'done' && task.status !== 'overdue' && !(timer.isRunning || timer.isPaused);
+  const hasTemplate = templates.some(t => t.title.toLowerCase() === task.title.toLowerCase());
 
   const [editingFinance, setEditingFinance] = useState(false);
   const [financeType, setFinanceType] = useState<'income' | 'expense'>(task.finance?.type || 'expense');
   const [financeAmount, setFinanceAmount] = useState(task.finance?.amount || 0);
-  const [financeNote, setFinanceNote] = useState(task.finance?.note || '');
 
   const saveFinance = () => {
-    if (financeAmount > 0) updateTask(task.id, { finance: { type: financeType, amount: financeAmount, note: financeNote || undefined } });
+    if (financeAmount > 0) updateTask(task.id, { finance: { type: financeType, amount: financeAmount }, showFinance: true });
     else updateTask(task.id, { finance: undefined });
     setEditingFinance(false);
+  };
+
+  const handleAddToTemplate = () => {
+    addTemplate({
+      title: task.title,
+      recurring: task.recurring || { type: 'none' },
+      notes: task.notes,
+      finance: task.finance,
+    });
   };
 
   return (
     <div className="fixed inset-0 z-[95] flex items-end sm:items-center justify-center bg-black/70" onClick={onClose}>
       <div className="w-full max-w-lg max-h-[90vh] bg-[var(--bg-elevated)] rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col animate-slide-up" onClick={e => e.stopPropagation()}>
+        {/* Header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-[var(--border-subtle)]">
-          <div className="flex items-center gap-2">
-            <Eye size={14} className="text-[var(--accent-primary)]" />
-            <h2 className="text-sm font-bold text-[var(--text-primary)]">Chi tiết</h2>
-          </div>
+          <h2 className="text-sm font-bold text-[var(--text-primary)]">Chi tiết việc</h2>
           <div className="flex gap-1.5">
-            <button onClick={onEdit} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium bg-[var(--bg-surface)] text-[var(--text-secondary)] min-h-[32px]"><Edit3 size={12} /> Sửa</button>
+            <button onClick={onEdit} className="px-2.5 py-1.5 rounded-lg text-[10px] font-medium bg-[var(--bg-surface)] text-[var(--text-secondary)] min-h-[32px]">Sửa</button>
             <button onClick={onClose} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)]"><X size={16} /></button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {/* Title */}
+          {/* Title + Status */}
           <div>
             <div className="flex items-start gap-2">
               <div className="w-1 h-5 rounded-full mt-0.5 flex-shrink-0" style={{ backgroundColor: qConfig.color }} />
@@ -75,24 +72,20 @@ export function TaskViewModal({ task, onClose, onEdit }: TaskViewModalProps) {
             </div>
             <div className="flex items-center gap-1.5 mt-1.5 ml-3 flex-wrap">
               <span className="text-[10px] font-medium" style={{ color: qConfig.color }}>{qConfig.icon} {qConfig.label}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${task.status === 'done' ? 'bg-[rgba(52,211,153,0.15)] text-[var(--success)]' : task.status === 'overdue' ? 'bg-[rgba(248,113,113,0.15)] text-[var(--error)]' : task.status === 'in_progress' ? 'bg-[rgba(251,191,36,0.15)] text-[var(--warning)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
-                {task.status === 'done' ? 'Xong' : task.status === 'overdue' ? 'Quá hạn' : task.status === 'in_progress' ? 'Đang làm' : 'Chờ'}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                task.status === 'done' ? 'bg-[rgba(52,211,153,0.15)] text-[var(--success)]' :
+                task.status === 'overdue' ? 'bg-[rgba(248,113,113,0.15)] text-[var(--error)]' :
+                task.status === 'in_progress' ? 'bg-[rgba(251,191,36,0.15)] text-[var(--warning)]' :
+                task.status === 'paused' ? 'bg-[rgba(96,165,250,0.15)] text-[var(--info)]' :
+                'bg-[var(--bg-surface)] text-[var(--text-muted)]'
+              }`}>
+                {task.status === 'done' ? 'Xong' : task.status === 'overdue' ? 'Quá hạn' : task.status === 'in_progress' ? 'Đang làm' : task.status === 'paused' ? 'Tạm dừng' : 'Chờ'}
               </span>
-              {task.xpReward && <span className="text-[10px] font-mono text-[var(--accent-primary)]">+{task.xpReward}XP</span>}
             </div>
           </div>
 
-          {/* Progress for groups */}
-          {progress && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
-              <div className="flex-1 h-2 rounded-full bg-[var(--bg-base)] overflow-hidden">
-                <div className="h-full rounded-full bg-[var(--accent-primary)]" style={{ width: `${progress.percent}%` }} />
-              </div>
-              <span className="text-xs font-mono text-[var(--accent-primary)]">{progress.percent}%</span>
-            </div>
-          )}
-
-          {deadlineDisplay && (
+          {/* Deadline - only if showDeadline */}
+          {task.showDeadline && deadlineDisplay && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
               <Calendar size={12} className={deadlineInfo?.urgent ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'} />
               <span className={`text-xs ${deadlineInfo?.urgent ? 'text-[var(--error)]' : 'text-[var(--text-primary)]'}`}>{deadlineDisplay}</span>
@@ -100,98 +93,117 @@ export function TaskViewModal({ task, onClose, onEdit }: TaskViewModalProps) {
             </div>
           )}
 
+          {/* Duration */}
           {task.duration && task.duration > 0 && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
               <Clock size={12} className="text-[var(--accent-primary)]" />
-              <span className="text-xs text-[var(--text-primary)] font-mono">{formatDuration(task.duration)}</span>
+              <span className="text-xs text-[var(--text-primary)] font-mono">Tổng: {formatDuration(task.duration)}</span>
             </div>
           )}
 
-          {dependencies.length > 0 && (
-            <div>
-              <p className="text-[10px] text-[var(--text-muted)] mb-1 flex items-center gap-1"><Link2 size={10} /> Phụ thuộc</p>
-              {dependencies.map(dep => (
-                <div key={dep.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] mb-1">
-                  {dep.status === 'done' ? <CheckCircle2 size={10} className="text-[var(--success)]" /> : <AlertTriangle size={10} className="text-[var(--warning)]" />}
-                  <span className={`text-[10px] ${dep.status === 'done' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}`}>{dep.title}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {task.notes && <div className="px-3 py-2 rounded-xl bg-[var(--bg-surface)]"><p className="text-xs text-[var(--text-primary)] whitespace-pre-wrap">{task.notes}</p></div>}
-
-          {/* Media from template */}
-          {template?.media && template.media.length > 0 && (
-            <div>
-              <p className="text-[10px] text-[var(--text-muted)] mb-1">Nội dung hướng dẫn</p>
-              {template.media.map(block => (
-                <div key={block.id} className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)] mb-2">
-                  {block.type === 'youtube' && <div className="aspect-video"><iframe src={block.content} className="w-full h-full" allowFullScreen /></div>}
-                  {block.type === 'image' && <img src={block.content} alt="" className="w-full max-h-40 object-cover" />}
-                  {block.type === 'text' && <p className="px-3 py-2 text-xs text-[var(--text-primary)] whitespace-pre-wrap">{block.content}</p>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Rich content from template */}
-          {template?.richContent && (
-            <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
-              <div className="text-xs text-[var(--text-primary)] [&_img]:max-w-full [&_img]:rounded-lg" dangerouslySetInnerHTML={{ __html: template.richContent }} />
-            </div>
-          )}
-
-          {/* Subtasks */}
-          {subtasks.length > 0 && (
-            <div>
-              <p className="text-[10px] text-[var(--text-muted)] mb-1 flex items-center gap-1"><ListTree size={10} /> Việc con ({subtasks.filter(s => s.status === 'done').length}/{subtasks.length})</p>
-              {subtasks.map(sub => (
-                <div key={sub.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] mb-1">
-                  {sub.status === 'done' ? <CheckCircle2 size={12} className="text-[var(--success)]" /> : <div className="size-3 rounded-full border border-[var(--text-muted)]" />}
-                  <span className={`text-xs flex-1 ${sub.status === 'done' ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>{sub.title}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Finance */}
-          <div className="px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1"><DollarSign size={10} /> Thu Chi</p>
-              <button onClick={() => setEditingFinance(!editingFinance)} className="text-[9px] text-[var(--accent-primary)]">{editingFinance ? 'Đóng' : task.finance ? 'Sửa' : 'Thêm'}</button>
-            </div>
-            {task.finance && !editingFinance && (
-              <span className={`text-sm font-bold font-mono ${task.finance.type === 'income' ? 'text-[var(--success)]' : 'text-[var(--error)]'}`}>
-                {task.finance.type === 'income' ? '+' : '-'}{task.finance.amount.toLocaleString('vi-VN')}đ
+          {/* Recurring - only if showRecurring */}
+          {task.showRecurring && task.recurring?.type !== 'none' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
+              <RotateCcw size={12} className="text-[var(--info)]" />
+              <span className="text-xs text-[var(--text-primary)]">
+                {task.recurring.type === 'daily' ? 'Hàng ngày' : task.recurring.type === 'weekdays' ? 'T2-T6' : 'Hàng tuần'}
               </span>
-            )}
-            {editingFinance && (
-              <div className="space-y-2 mt-1">
-                <div className="flex gap-2">
-                  <button onClick={() => setFinanceType('income')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium ${financeType === 'income' ? 'bg-[rgba(52,211,153,0.2)] text-[var(--success)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>+ Thu</button>
-                  <button onClick={() => setFinanceType('expense')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium ${financeType === 'expense' ? 'bg-[rgba(248,113,113,0.2)] text-[var(--error)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>- Chi</button>
-                </div>
-                <input type="number" value={financeAmount || ''} onChange={e => setFinanceAmount(Math.max(0, parseInt(e.target.value) || 0))} placeholder="Số tiền" inputMode="numeric"
-                  className="w-full bg-[var(--bg-elevated)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] font-mono min-h-[32px]" />
-                <button onClick={saveFinance} className="w-full py-2 rounded-lg text-[10px] font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] min-h-[32px]"><Save size={10} className="inline mr-1" /> Lưu</button>
+            </div>
+          )}
+
+          {/* Notes - only if showNotes */}
+          {task.showNotes && task.notes && (
+            <div className="px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
+              <p className="text-xs text-[var(--text-primary)] whitespace-pre-wrap">{task.notes}</p>
+            </div>
+          )}
+
+          {/* Finance - only if showFinance */}
+          {task.showFinance && (
+            <div className="px-3 py-2 rounded-xl bg-[var(--bg-surface)]">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1"><DollarSign size={10} /> Thu Chi</p>
+                <button onClick={() => setEditingFinance(!editingFinance)} className="text-[9px] text-[var(--accent-primary)]">{editingFinance ? 'Đóng' : task.finance ? 'Sửa' : 'Nhập'}</button>
               </div>
+              {task.finance && !editingFinance && (
+                <span className={`text-sm font-bold font-mono ${task.finance.type === 'income' ? 'text-[var(--success)]' : 'text-[var(--error)]'}`}>
+                  {task.finance.type === 'income' ? '+' : '-'}{task.finance.amount.toLocaleString('vi-VN')}đ
+                </span>
+              )}
+              {editingFinance && (
+                <div className="space-y-2 mt-1">
+                  <div className="flex gap-2">
+                    <button onClick={() => setFinanceType('income')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium ${financeType === 'income' ? 'bg-[rgba(52,211,153,0.2)] text-[var(--success)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>+ Thu</button>
+                    <button onClick={() => setFinanceType('expense')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium ${financeType === 'expense' ? 'bg-[rgba(248,113,113,0.2)] text-[var(--error)]' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)]'}`}>- Chi</button>
+                  </div>
+                  <input type="number" value={financeAmount || ''} onChange={e => setFinanceAmount(Math.max(0, parseInt(e.target.value) || 0))} placeholder="Số tiền" inputMode="numeric"
+                    className="w-full bg-[var(--bg-elevated)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] outline-none border border-[var(--border-subtle)] font-mono min-h-[32px]" />
+                  <button onClick={saveFinance} className="w-full py-2 rounded-lg text-[10px] font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] min-h-[32px]">Lưu</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom actions */}
+        {task.status !== 'done' && (
+          <div className="px-4 pb-4 pt-2 border-t border-[var(--border-subtle)] flex gap-2">
+            {canTimer && (
+              <button onClick={() => { startTimer(task.id); onClose(); }} className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] min-h-[42px] flex items-center justify-center gap-1.5">
+                <Play size={14} fill="currentColor" /> Bấm giờ
+              </button>
+            )}
+            {!hasTemplate && (
+              <button onClick={() => { handleAddToTemplate(); onClose(); }} className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-[var(--accent-primary)] bg-[var(--accent-dim)] min-h-[42px] flex items-center justify-center gap-1.5 border border-[var(--border-accent)]">
+                <FileText size={14} /> Thêm vào Mẫu
+              </button>
             )}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-          {/* Action */}
-          {task.status !== 'done' && (
-            <div className="flex gap-2">
-              {isTimerRunnable && !isTimerActive && (
-                <button onClick={() => { startTimer(task.id); onClose(); }} className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-[var(--bg-base)] bg-[var(--accent-primary)] min-h-[40px] flex items-center justify-center gap-1">
-                  <Play size={14} fill="currentColor" /> Đếm giờ
-                </button>
-              )}
-              <button onClick={() => { completeTask(task.id); onClose(); }} className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-[var(--success)] bg-[rgba(52,211,153,0.15)] min-h-[40px] flex items-center justify-center gap-1">
-                <CheckCircle2 size={14} /> Hoàn thành
-              </button>
-            </div>
-          )}
+// Delegate summary modal
+export function DelegateSummaryModal({ task, onClose }: { task: Task; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const qConfig = QUADRANT_LABELS[task.quadrant];
+
+  const summaryText = useMemo(() => {
+    let text = `📋 VIỆC ỦY THÁC\n\n`;
+    text += `📌 ${task.title}\n`;
+    text += `🏷️ ${qConfig.label}\n`;
+    if (task.deadline) text += `⏰ Hạn chót: ${new Date(task.deadline).toLocaleString('vi-VN')}\n`;
+    if (task.recurring?.type !== 'none') text += `🔁 Lặp lại: ${task.recurring.type === 'daily' ? 'Hàng ngày' : task.recurring.type === 'weekdays' ? 'T2-T6' : 'Hàng tuần'}\n`;
+    if (task.notes) text += `📝 Ghi chú: ${task.notes}\n`;
+    if (task.finance) text += `💰 ${task.finance.type === 'income' ? 'Thu' : 'Chi'}: ${task.finance.amount.toLocaleString('vi-VN')}đ\n`;
+    text += `\n--- NghiemWork ---`;
+    return text;
+  }, [task]);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(summaryText);
+    setCopied(true);
+    setTimeout(() => onClose(), 800);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/70 px-4" onClick={onClose}>
+      <div className="w-full max-w-sm bg-[var(--bg-elevated)] rounded-2xl overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-[var(--text-primary)]">Nội dung ủy thác</h3>
+          <button onClick={onClose} className="size-7 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)]"><X size={14} /></button>
+        </div>
+        <div className="px-4 pb-3">
+          <div className="bg-[var(--bg-surface)] rounded-xl p-3 text-xs text-[var(--text-primary)] whitespace-pre-wrap font-mono max-h-60 overflow-y-auto">
+            {summaryText}
+          </div>
+        </div>
+        <div className="px-4 pb-4">
+          <button onClick={handleCopy} className="w-full py-3 rounded-xl text-sm font-semibold min-h-[44px] flex items-center justify-center gap-2 bg-[var(--accent-primary)] text-[var(--bg-base)]">
+            {copied ? <><Check size={16} /> Đã copy!</> : <><Copy size={16} /> Copy toàn bộ</>}
+          </button>
         </div>
       </div>
     </div>

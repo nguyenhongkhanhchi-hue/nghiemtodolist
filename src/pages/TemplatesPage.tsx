@@ -176,7 +176,7 @@ function AddToTodoDialog({ template, onClose }: { template: TaskTemplate; onClos
 // ── Template Editor ──
 function TemplateEditor({ template, onSave, onCancel }: {
   template?: TaskTemplate;
-  onSave: (data: Omit<TaskTemplate, 'id' | 'createdAt'>) => void;
+  onSave: (data: Omit<TaskTemplate, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onCancel: () => void;
 }) {
   const topics = useTopicStore(s => s.topics);
@@ -214,7 +214,8 @@ function TemplateEditor({ template, onSave, onCancel }: {
   const handleSave = () => {
     if (!title.trim()) return;
     onSave({
-      title: title.trim(), recurring: { type: 'none' },
+      title: title.trim(),
+      type: 'single',
       notes: showNotes ? notes || undefined : undefined,
       richContent: richContent || undefined,
       subtasks: subtasks.length > 0 ? subtasks : undefined,
@@ -222,7 +223,6 @@ function TemplateEditor({ template, onSave, onCancel }: {
       finance: showFinance ? finance : undefined,
       xpReward: xpReward > 0 ? xpReward : undefined,
       topicId: topicId || undefined,
-      isGroup: subtasks.length > 0,
     });
   };
 
@@ -370,37 +370,50 @@ export default function TemplatesPage() {
   const [tab, setTab] = useState<'single' | 'group'>('single');
   const [topicFilter, setTopicFilter] = useState<string>('all');
 
-  const singleTemplates = templates.filter(t => !t.isGroup && (!t.subtasks || t.subtasks.length === 0));
-  const groupTemplates = templates.filter(t => t.isGroup || (t.subtasks && t.subtasks.length > 0));
-  const displayTemplates = (tab === 'single' ? singleTemplates : groupTemplates)
-    .filter(t => topicFilter === 'all' || t.topicId === topicFilter);
+  const singleTemplates = useMemo(() => templates.filter(t => t.type === 'single'), [templates]);
+  const groupTemplates = useMemo(() => templates.filter(t => t.type === 'group'), [templates]);
 
-  const topicCounts = topics.map(t => ({
+  const displayTemplates = useMemo(() => (tab === 'single' ? singleTemplates : groupTemplates)
+    .filter(t => topicFilter === 'all' || t.topicId === topicFilter), [tab, singleTemplates, groupTemplates, topicFilter]);
+
+  const topicCounts = useMemo(() => topics.map(t => ({
     ...t,
     count: templates.filter(tpl => tpl.topicId === t.id).length,
-  }));
+  })), [topics, templates]);
 
-  const handleSave = (data: Omit<TaskTemplate, 'id' | 'createdAt'>) => {
-    if (editingTemplate) updateTemplate(editingTemplate.id, data);
-    else addTemplate(data);
-    setShowEditor(false); setEditingTemplate(null);
+  const handleSave = (data: Omit<TaskTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (editingTemplate) {
+      updateTemplate(editingTemplate.id, data);
+    } else {
+      addTemplate(data);
+    }
+    setShowEditor(false);
+    setEditingTemplate(null);
   };
 
   const handleExport = () => {
     const json = exportTemplates();
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'nghiemwork-templates.json';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'nghiemwork-templates.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    file.text().then(json => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const json = event.target?.result as string;
       const count = importTemplates(json);
       alert(count > 0 ? `Đã nhập ${count} mẫu` : 'Không nhập được mẫu nào');
-    });
+    };
+    reader.readAsText(file);
     e.target.value = '';
   };
 
@@ -424,11 +437,11 @@ export default function TemplatesPage() {
       <div className="flex gap-0.5 p-0.5 bg-[var(--bg-elevated)] rounded-xl mb-3">
         <button onClick={() => setTab('single')}
           className={`flex-1 py-2 rounded-lg text-xs font-medium min-h-[36px] flex items-center justify-center gap-1.5 ${tab === 'single' ? 'bg-[var(--bg-surface)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
-          Việc đơn <span className="text-[9px] font-mono bg-[var(--bg-base)] px-1.5 py-0.5 rounded">{singleTemplates.length}</span>
+          Việc Đơn <span className="text-[9px] font-mono bg-[var(--bg-base)] px-1.5 py-0.5 rounded">{singleTemplates.length}</span>
         </button>
         <button onClick={() => setTab('group')}
           className={`flex-1 py-2 rounded-lg text-xs font-medium min-h-[36px] flex items-center justify-center gap-1.5 ${tab === 'group' ? 'bg-[var(--bg-surface)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
-          Nhóm việc <span className="text-[9px] font-mono bg-[var(--bg-base)] px-1.5 py-0.5 rounded">{groupTemplates.length}</span>
+          Nhóm Việc <span className="text-[9px] font-mono bg-[var(--bg-base)] px-1.5 py-0.5 rounded">{groupTemplates.length}</span>
         </button>
       </div>
 
@@ -460,7 +473,7 @@ export default function TemplatesPage() {
           {displayTemplates.map(template => {
             const topic = topics.find(t => t.id === template.topicId);
             // Find which group templates contain this single template
-            const parentGroups = tab === 'single' ? groupTemplates.filter(g => g.subtasks?.some(s => s.title === template.title)) : [];
+            const parentGroups = tab === 'single' ? groupTemplates.filter(g => g.templateIds?.includes(template.id)) : [];
             return (
               <div key={template.id} className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border-subtle)] p-3 active:border-[var(--border-accent)] transition-colors">
                 <div className="flex items-start gap-2">

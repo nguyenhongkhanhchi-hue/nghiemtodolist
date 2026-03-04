@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { useTaskStore, useAuthStore, useSettingsStore, useGamificationStore, useTemplateStore } from '@/stores';
 import { supabase } from '@/lib/supabase';
 import { requestNotificationPermission, canSendNotification } from '@/lib/notifications';
 import { exportData, importData } from '@/lib/dataUtils';
 import {
-  Type, Volume2, Mic, Trash2, AlertTriangle, Minus, Plus,
-  LogOut, User, Globe, Bell, Download, Upload, Smartphone, Monitor,
+  Type, Volume2, Mic, Trash2, Minus, Plus,
+  LogOut, User, Globe, Bell, Download, Upload, Smartphone,
 } from 'lucide-react';
 
 const TIMEZONES = [
@@ -34,12 +34,12 @@ export default function SettingsPage() {
   const tasks = useTaskStore(s => s.tasks);
   const templates = useTemplateStore(s => s.templates);
   const gamState = useGamificationStore(s => s.state);
-  const fontScale = useSettingsStore(s => s.fontScale);
+  const uiScale = useSettingsStore(s => s.uiScale);
   const tickSoundEnabled = useSettingsStore(s => s.tickSoundEnabled);
   const voiceEnabled = useSettingsStore(s => s.voiceEnabled);
   const timezone = useSettingsStore(s => s.timezone);
   const notificationSettings = useSettingsStore(s => s.notificationSettings);
-  const setFontScale = useSettingsStore(s => s.setFontScale);
+  const setUiScale = useSettingsStore(s => s.setUiScale);
   const setTickSound = useSettingsStore(s => s.setTickSound);
   const setVoiceEnabled = useSettingsStore(s => s.setVoiceEnabled);
   const setTimezone = useSettingsStore(s => s.setTimezone);
@@ -52,13 +52,6 @@ export default function SettingsPage() {
   const installed = isStandalone();
   const notifGranted = canSendNotification();
 
-  const fontSizes = [
-    { label: 'Nhỏ', value: 0.85 },
-    { label: 'Vừa', value: 1 },
-    { label: 'Lớn', value: 1.15 },
-    { label: 'Rất lớn', value: 1.3 },
-  ];
-
   const handleClear = () => {
     if (window.confirm('Xóa toàn bộ dữ liệu?')) { clearAllData(); window.location.reload(); }
   };
@@ -69,7 +62,7 @@ export default function SettingsPage() {
   };
 
   const handleExport = () => {
-    exportData(tasks, templates, gamState, { fontScale, tickSoundEnabled, voiceEnabled, timezone, notificationSettings });
+    exportData(tasks, templates, gamState, { uiScale, tickSoundEnabled, voiceEnabled, timezone, notificationSettings });
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,23 +178,17 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Font */}
+      {/* UI Scale */}
       <div className="bg-[var(--bg-elevated)] rounded-xl p-4 border border-[var(--border-subtle)] mb-3">
         <div className="flex items-center gap-2 mb-2">
           <Type size={16} className="text-[var(--accent-primary)]" />
-          <span className="text-sm font-medium text-[var(--text-primary)]">Cỡ chữ</span>
-          <span className="text-xs font-mono text-[var(--accent-primary)] ml-auto tabular-nums">{Math.round(fontScale * 100)}%</span>
+          <span className="text-sm font-medium text-[var(--text-primary)]">Phóng to</span>
+          <span className="text-xs font-mono text-[var(--accent-primary)] ml-auto tabular-nums">{Math.round(uiScale * 100)}%</span>
         </div>
-        <div className="grid grid-cols-4 gap-1.5">
-          {fontSizes.map(({ label, value }) => (
-            <button key={value} onClick={() => setFontScale(value)}
-              className={`py-2 rounded-lg text-[11px] font-medium min-h-[36px] ${fontScale === value ? 'bg-[rgba(0,229,204,0.2)] text-[var(--accent-primary)] border border-[var(--border-accent)]' : 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'}`}>{label}</button>
-          ))}
-        </div>
-        <div className="flex items-center justify-center gap-4 mt-2">
-          <button onClick={() => setFontScale(Math.round((fontScale - 0.05) * 100) / 100)} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-secondary)]"><Minus size={14} /></button>
-          <p className="text-[var(--text-primary)] font-medium" style={{ fontSize: `${16 * fontScale}px` }}>Xem trước</p>
-          <button onClick={() => setFontScale(Math.round((fontScale + 0.05) * 100) / 100)} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-secondary)]"><Plus size={14} /></button>
+        <div className="flex items-center gap-2">
+            <button onClick={() => setUiScale(uiScale - 0.1)} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-secondary)]"><Minus size={14} /></button>
+            <input type="range" min="1" max="2" step="0.1" value={uiScale} onChange={(e) => setUiScale(parseFloat(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700" />
+            <button onClick={() => setUiScale(uiScale + 0.1)} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-secondary)]"><Plus size={14} /></button>
         </div>
       </div>
 

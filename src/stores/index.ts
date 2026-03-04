@@ -500,13 +500,13 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
 
 // ──────────── SETTINGS STORE ────────────
 interface SettingsStore {
-  fontScale: number;
+  uiScale: number;
   tickSoundEnabled: boolean;
   voiceEnabled: boolean;
   currentPage: PageType;
   timezone: string;
   notificationSettings: NotificationSettings;
-  setFontScale: (scale: number) => void;
+  setUiScale: (scale: number) => void;
   setTickSound: (enabled: boolean) => void;
   setVoiceEnabled: (enabled: boolean) => void;
   setCurrentPage: (page: PageType) => void;
@@ -515,17 +515,17 @@ interface SettingsStore {
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
-  fontScale: loadFromStorage<number>('nw_fontscale', 1),
+  uiScale: loadFromStorage<number>('nw_uiscale', 1),
   tickSoundEnabled: loadFromStorage<boolean>('nw_tick', true),
   voiceEnabled: loadFromStorage<boolean>('nw_voice', true),
   timezone: loadFromStorage<string>('nw_timezone', 'Asia/Ho_Chi_Minh'),
   notificationSettings: loadFromStorage<NotificationSettings>('nw_notifications', { enabled: true, beforeDeadline: 15, dailyReminder: false, dailyReminderTime: '08:00' }),
   currentPage: 'tasks',
-  setFontScale: (scale) => {
-    const safe = Math.max(0.75, Math.min(1.5, scale));
-    saveToStorage('nw_fontscale', safe);
-    document.documentElement.style.setProperty('--font-scale', String(safe));
-    set({ fontScale: safe });
+  setUiScale: (scale) => {
+    const safe = Math.max(1, Math.min(2, scale));
+    saveToStorage('nw_uiscale', safe);
+    document.documentElement.style.setProperty('--ui-scale', String(safe));
+    set({ uiScale: safe });
   },
   setTickSound: (e) => { saveToStorage('nw_tick', e); set({ tickSoundEnabled: e }); },
   setVoiceEnabled: (e) => { saveToStorage('nw_voice', e); set({ voiceEnabled: e }); },

@@ -6,7 +6,7 @@ import { TaskViewModal, DelegateSummaryModal } from '@/components/features/TaskV
 import { TaskEditModal } from '@/components/features/TaskEditModal';
 import {
   CheckCircle2, GripVertical, RotateCcw, Trash2, Undo2,
-  Clock, Calendar, DollarSign, FileText,
+  Clock, Calendar, DollarSign, FileText, Plus,
 } from 'lucide-react';
 import type { Task, TabType, EisenhowerQuadrant } from '@/types';
 import { QUADRANT_LABELS } from '@/types';
@@ -24,6 +24,7 @@ function TaskItem({ task, tab, onView }: { task: Task; tab: TabType; onView: (ta
   const restoreTask = useTaskStore(s => s.restoreTask);
   const removeTask = useTaskStore(s => s.removeTask);
   const updateTask = useTaskStore(s => s.updateTask);
+  const addTemplate = useTemplateStore(s => s.addTemplate);
   const timer = useTaskStore(s => s.timer);
   const timezone = useSettingsStore(s => s.timezone);
   const [showDelegate, setShowDelegate] = useState(false);
@@ -32,6 +33,11 @@ function TaskItem({ task, tab, onView }: { task: Task; tab: TabType; onView: (ta
   const qConfig = QUADRANT_LABELS[task.quadrant];
   const deadlineInfo = task.deadline ? formatTimeRemaining(task.deadline, timezone) : null;
   const deadlineDisplay = task.deadline ? formatDeadlineDisplay(task.deadline, timezone) : null;
+
+  const handleAddToTemplate = () => {
+    const { id, status, createdAt, completedAt, order, ...rest } = task;
+    addTemplate({ ...rest, type: 'single' });
+  };
 
   const { handlers } = useSwipeGesture({
     threshold: 80,
@@ -86,6 +92,9 @@ function TaskItem({ task, tab, onView }: { task: Task; tab: TabType; onView: (ta
           </div>
 
           <div className="flex items-center gap-0.5 flex-shrink-0">
+            {!task.templateId && (
+              <button onClick={handleAddToTemplate} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)]"><Plus size={14} /></button>
+            )}
             {(tab === 'done' || tab === 'overdue') && (
               <>
                 <button onClick={() => restoreTask(task.id)} className="size-8 rounded-lg bg-[var(--bg-surface)] flex items-center justify-center text-[var(--text-muted)]"><Undo2 size={14} /></button>

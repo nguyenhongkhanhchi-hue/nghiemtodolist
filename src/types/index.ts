@@ -63,7 +63,11 @@ export interface Task {
 export interface TaskTemplate {
   id: string;
   title: string;
-  recurring: RecurringConfig;
+  type: 'single' | 'group';
+  createdAt: number;
+  updatedAt?: number;
+
+  // Fields for 'single' type
   notes?: string;
   media?: MediaBlock[];
   richContent?: string;
@@ -72,10 +76,10 @@ export interface TaskTemplate {
   xpReward?: number;
   topicId?: string;
   topicParams?: TopicParam[];
-  isGroup?: boolean;
-  createdAt: number;
-  updatedAt?: number;
-  groupIds?: string[]; // for group templates: child template ids
+  recurring?: RecurringConfig;
+
+  // Fields for 'group' type
+  templateIds?: string[];
 }
 
 export interface TimerState {

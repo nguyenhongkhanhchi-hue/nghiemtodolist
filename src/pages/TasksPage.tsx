@@ -23,7 +23,7 @@ export default function TasksPage() {
   const hasTimer = timer.isRunning || timer.isPaused;
 
   return (
-    <div className="flex flex-col h-full px-4" style={{ paddingTop: hasTimer ? '60px' : '0' }}>
+    <div className="flex flex-col h-full max-w-4xl mx-auto px-4" style={{ paddingTop: hasTimer ? '60px' : '0' }}>
       {/* Header */}
       <div className="flex items-center justify-between pt-3 pb-2">
         <div>

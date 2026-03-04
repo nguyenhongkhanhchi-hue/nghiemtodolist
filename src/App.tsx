@@ -15,7 +15,7 @@ import FinancePage from '@/pages/FinancePage';
 
 export default function App() {
   const currentPage = useSettingsStore(s => s.currentPage);
-  const fontScale = useSettingsStore(s => s.fontScale);
+  const uiScale = useSettingsStore(s => s.uiScale);
   const timezone = useSettingsStore(s => s.timezone);
   const notificationSettings = useSettingsStore(s => s.notificationSettings);
   const user = useAuthStore(s => s.user);
@@ -31,8 +31,8 @@ export default function App() {
   const markOverdue = useTaskStore(s => s.markOverdue);
   const [isLandscape, setIsLandscape] = useState(false);
 
-  // Font scale
-  useEffect(() => { document.documentElement.style.setProperty('--font-scale', String(fontScale)); }, [fontScale]);
+  // UI scale
+  useEffect(() => { document.documentElement.style.setProperty('--ui-scale', String(uiScale)); }, [uiScale]);
 
   // Detect orientation
   useEffect(() => {
@@ -59,19 +59,31 @@ export default function App() {
   // Auth session
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted && session?.user) {
-        const u = session.user;
-        setUser({ id: u.id, email: u.email!, username: u.user_metadata?.username || u.email!.split('@')[0] });
-      } else if (mounted) setLoading(false);
-    });
+    const fetchSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted) {
+        if (session?.user) {
+          const u = session.user;
+          setUser({ id: u.id, email: u.email!, username: u.user_metadata?.username || u.email!.split('@')[0] });
+        }
+        setLoading(false);
+      }
+    };
+
+    fetchSession();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
         const u = session.user;
         setUser({ id: u.id, email: u.email!, username: u.user_metadata?.username || u.email!.split('@')[0] });
-      } else if (event === 'SIGNED_OUT') { setUser(null); setLoading(false); }
+        setLoading(false);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setLoading(false);
+      }
     });
+
     return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 

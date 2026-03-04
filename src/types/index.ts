@@ -67,19 +67,20 @@ export interface TaskTemplate {
   createdAt: number;
   updatedAt?: number;
 
-  // Fields for 'single' type
+  // Fields for 'single' type (The "Original" work)
   notes?: string;
   media?: MediaBlock[];
   richContent?: string;
-  subtasks?: { title: string }[];
   finance?: TaskFinance;
   xpReward?: number;
   topicId?: string;
   topicParams?: TopicParam[];
-  recurring?: RecurringConfig;
+  showMedia?: boolean; // Toggle for multimedia
+  showNotes?: boolean;
+  showFinance?: boolean;
 
-  // Fields for 'group' type
-  templateIds?: string[];
+  // Fields for 'group' type (A list of single templates)
+  templateIds?: string[]; // IDs of 'single' templates
 }
 
 export interface TimerState {

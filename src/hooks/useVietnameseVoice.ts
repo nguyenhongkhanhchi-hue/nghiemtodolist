@@ -1,13 +1,16 @@
 import { useCallback } from 'react';
+import { useSettingsStore } from '@/stores';
 
 export function useVietnameseVoice() {
+  const voiceSpeed = useSettingsStore(s => s.voiceSpeed);
+
   const speak = useCallback((text: string) => {
     if (!('speechSynthesis' in window)) return;
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'vi-VN';
-    utterance.rate = 1.1;
+    utterance.rate = voiceSpeed || 1.1;
     utterance.pitch = 1.2;
 
     const voices = window.speechSynthesis.getVoices();
@@ -21,7 +24,7 @@ export function useVietnameseVoice() {
     }
 
     window.speechSynthesis.speak(utterance);
-  }, []);
+  }, [voiceSpeed]);
 
   const announceTime = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60);

@@ -42,7 +42,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
 interface TaskStore {
   tasks: Task[];
   activeTab: TabType;
-  timer: TimerState;
+  timer: TimerState & { lastHeartbeat?: number };
   _userId: string | undefined;
   initForUser: (userId?: string) => void;
   setActiveTab: (tab: TabType) => void;
@@ -61,9 +61,10 @@ interface TaskStore {
   markOverdue: () => void;
 }
 
-const defaultTimer: TimerState = {
+const defaultTimer: TimerState & { lastHeartbeat?: number } = {
   taskId: null, isRunning: false, isPaused: false, elapsed: 0,
   startTime: null, pausedAt: null, totalPausedDuration: 0,
+  lastHeartbeat: undefined
 };
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
@@ -74,7 +75,23 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   initForUser: (userId) => {
     const key = getUserKey('nw_tasks', userId);
-    set({ tasks: loadFromStorage<Task[]>(key, []), _userId: userId, timer: { ...defaultTimer } });
+    const savedTasks = loadFromStorage<Task[]>(key, []);
+    
+    // Recovery Logic: If app was closed while running
+    let savedTimer = loadFromStorage<TimerState & { lastHeartbeat?: number }>(getUserKey('nw_timer', userId), { ...defaultTimer });
+    if (savedTimer.isRunning && savedTimer.lastHeartbeat) {
+        // App crashed/closed. Calculate elapsed up to last heartbeat
+        const recoveredElapsed = Math.max(0, Math.floor((savedTimer.lastHeartbeat - (savedTimer.startTime || 0)) / 1000) - (savedTimer.totalPausedDuration || 0));
+        savedTimer = {
+            ...savedTimer,
+            isRunning: false,
+            isPaused: true,
+            elapsed: recoveredElapsed,
+            pausedAt: Date.now()
+        };
+    }
+
+    set({ tasks: savedTasks, _userId: userId, timer: savedTimer });
   },
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -124,13 +141,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       t.id === id ? { ...t, status: 'done' as const, completedAt: Date.now() } : t
     );
     saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
-    // Stop timer if running for this task
-    const timer = get().timer;
-    set({
-      tasks: updated,
-      timer: timer.taskId === id ? { ...defaultTimer } : timer,
-    });
-    // Gamification: auto XP
+    
+    // Stop timer
+    const timer = { ...defaultTimer };
+    saveToStorage(getUserKey('nw_timer', get()._userId), timer);
+    set({ tasks: updated, timer });
+    
     useGamificationStore.getState().onTaskCompleted(task.quadrant, task.duration || 0, tz, xpEarned);
   },
 
@@ -156,52 +172,71 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   startTimer: (taskId) => {
     const updated = get().tasks.map(t => t.id === taskId ? { ...t, status: 'in_progress' as const } : t);
     saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
-    set({
-      tasks: updated,
-      timer: { taskId, isRunning: true, isPaused: false, elapsed: 0, startTime: Date.now(), pausedAt: null, totalPausedDuration: 0 },
-    });
+    const newTimer = { taskId, isRunning: true, isPaused: false, elapsed: 0, startTime: Date.now(), pausedAt: null, totalPausedDuration: 0, lastHeartbeat: Date.now() };
+    saveToStorage(getUserKey('nw_timer', get()._userId), newTimer);
+    set({ tasks: updated, timer: newTimer });
   },
+
   pauseTimer: () => {
     const t = get().timer;
-    if (t.isRunning && !t.isPaused) set({ timer: { ...t, isPaused: true, isRunning: false, pausedAt: Date.now() } });
+    if (t.isRunning && !t.isPaused) {
+        const newTimer = { ...t, isPaused: true, isRunning: false, pausedAt: Date.now() };
+        saveToStorage(getUserKey('nw_timer', get()._userId), newTimer);
+        set({ timer: newTimer });
+    }
   },
+
   resumeTimer: () => {
     const t = get().timer;
     if (t.isPaused && t.pausedAt) {
       const pd = Math.floor((Date.now() - t.pausedAt) / 1000);
-      set({ timer: { ...t, isPaused: false, isRunning: true, pausedAt: null, totalPausedDuration: t.totalPausedDuration + pd } });
+      const newTimer = { ...t, isPaused: false, isRunning: true, pausedAt: null, totalPausedDuration: t.totalPausedDuration + pd, lastHeartbeat: Date.now() };
+      saveToStorage(getUserKey('nw_timer', get()._userId), newTimer);
+      set({ timer: newTimer });
     }
   },
+
   stopTimer: () => {
     const t = get().timer;
     if (t.taskId) {
-      // Cumulative duration: add elapsed to task's existing duration
       const elapsed = t.elapsed;
       const updated = get().tasks.map(tk => {
         if (tk.id === t.taskId) {
           const newDuration = (tk.duration || 0) + elapsed;
-          // Set status to paused (has time but not complete)
           const newStatus = tk.status === 'in_progress' ? 'paused' as const : tk.status;
           return { ...tk, duration: newDuration, status: newStatus };
         }
         return tk;
       });
       saveToStorage(getUserKey('nw_tasks', get()._userId), updated);
-      set({ tasks: updated, timer: { ...defaultTimer } });
-    } else set({ timer: { ...defaultTimer } });
+      const stoppedTimer = { ...defaultTimer };
+      saveToStorage(getUserKey('nw_timer', get()._userId), stoppedTimer);
+      set({ tasks: updated, timer: stoppedTimer });
+    } else {
+        set({ timer: { ...defaultTimer } });
+    }
   },
+
   tickTimer: () => {
     const t = get().timer;
     if (t.isRunning && t.startTime && !t.isPaused) {
-      set({ timer: { ...t, elapsed: Math.floor((Date.now() - t.startTime) / 1000) - t.totalPausedDuration } });
+      const now = Date.now();
+      const elapsed = Math.floor((now - t.startTime) / 1000) - t.totalPausedDuration;
+      const updatedTimer = { ...t, elapsed, lastHeartbeat: now };
+      
+      // Heartbeat saving every tick to survive unexpected closure
+      saveToStorage(getUserKey('nw_timer', get()._userId), updatedTimer);
+      set({ timer: updatedTimer });
     }
   },
+
   clearAllData: () => {
     const u = get()._userId;
-    ['nw_tasks', 'nw_chat', 'nw_gamification', 'nw_templates', 'nw_topics'].forEach(k => localStorage.removeItem(getUserKey(k, u)));
+    ['nw_tasks', 'nw_chat', 'nw_gamification', 'nw_templates', 'nw_topics', 'nw_timer'].forEach(k => localStorage.removeItem(getUserKey(k, u)));
     localStorage.removeItem('nw_settings');
     set({ tasks: [], timer: { ...defaultTimer } });
   },
+
   markOverdue: () => {
     const tz = useSettingsStore.getState().timezone;
     const now = getNowInTimezone(tz).getTime();
@@ -211,7 +246,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         changed = true;
         return { ...t, status: 'overdue' as const };
       }
-      // Auto move schedule to do_first if deadline is today
       if (t.status === 'pending' && t.quadrant === 'schedule' && t.deadline) {
         const deadlineDate = new Date(t.deadline);
         const nowDate = new Date(now);
@@ -316,19 +350,33 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
     const template = get().templates.find(t => t.id === templateId);
     if (!template) return;
     const taskStore = useTaskStore.getState();
-    const quadrant = quadrantOverride || 'do_first';
-    const recurring = recurringOverride || template.recurring;
-    let deadline: number | undefined;
-    if (deadlineDate) {
-      const timeStr = deadlineTime || '23:59';
-      deadline = new Date(`${deadlineDate}T${timeStr}:00`).getTime();
+
+    if (template.type === 'group' && template.templateIds) {
+      template.templateIds.forEach(id => {
+        const subT = get().templates.find(st => st.id === id);
+        if (subT) {
+          taskStore.addTask(
+            subT.title, quadrantOverride || 'do_first', undefined, recurringOverride || subT.recurring,
+            deadlineDate, deadlineTime, financeOverride || subT.finance, subT.id, false,
+            { notes: notesOverride || subT.notes, showDeadline: !!deadlineDate, showRecurring: (recurringOverride || subT.recurring)?.type !== 'none', showFinance: !!(financeOverride || subT.finance), showNotes: !!(notesOverride || subT.notes) }
+          );
+        }
+      });
+    } else {
+      const quadrant = quadrantOverride || 'do_first';
+      const recurring = recurringOverride || template.recurring;
+      let deadline: number | undefined;
+      if (deadlineDate) {
+        const timeStr = deadlineTime || '23:59';
+        deadline = new Date(`${deadlineDate}T${timeStr}:00`).getTime();
+      }
+      const finance = financeOverride || template.finance;
+      taskStore.addTask(
+        template.title, quadrant, deadline, recurring,
+        deadlineDate, deadlineTime, finance, template.id, false,
+        { notes: notesOverride || template.notes, showDeadline: !!deadline, showRecurring: recurring?.type !== 'none', showFinance: !!finance, showNotes: !!(notesOverride || template.notes) },
+      );
     }
-    const finance = financeOverride || template.finance;
-    taskStore.addTask(
-      template.title, quadrant, deadline, recurring,
-      deadlineDate, deadlineTime, finance, templateId, template.isGroup,
-      { notes: notesOverride || template.notes, showDeadline: !!deadline, showRecurring: recurring?.type !== 'none', showFinance: !!finance, showNotes: !!(notesOverride || template.notes) },
-    );
   },
   exportTemplates: () => {
     const templates = get().templates;
@@ -503,12 +551,18 @@ interface SettingsStore {
   uiScale: number;
   tickSoundEnabled: boolean;
   voiceEnabled: boolean;
+  voiceCountdownEnabled: boolean;
+  voiceTickEnabled: boolean;
+  voiceSpeed: number;
   currentPage: PageType;
   timezone: string;
   notificationSettings: NotificationSettings;
   setUiScale: (scale: number) => void;
   setTickSound: (enabled: boolean) => void;
   setVoiceEnabled: (enabled: boolean) => void;
+  setVoiceCountdown: (enabled: boolean) => void;
+  setVoiceTick: (enabled: boolean) => void;
+  setVoiceSpeed: (speed: number) => void;
   setCurrentPage: (page: PageType) => void;
   setTimezone: (tz: string) => void;
   setNotificationSettings: (settings: Partial<NotificationSettings>) => void;
@@ -518,6 +572,9 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   uiScale: loadFromStorage<number>('nw_uiscale', 1),
   tickSoundEnabled: loadFromStorage<boolean>('nw_tick', true),
   voiceEnabled: loadFromStorage<boolean>('nw_voice', true),
+  voiceCountdownEnabled: loadFromStorage<boolean>('nw_voice_countdown', true),
+  voiceTickEnabled: loadFromStorage<boolean>('nw_voice_tick', false),
+  voiceSpeed: loadFromStorage<number>('nw_voice_speed', 1),
   timezone: loadFromStorage<string>('nw_timezone', 'Asia/Ho_Chi_Minh'),
   notificationSettings: loadFromStorage<NotificationSettings>('nw_notifications', { enabled: true, beforeDeadline: 15, dailyReminder: false, dailyReminderTime: '08:00' }),
   currentPage: 'tasks',
@@ -529,6 +586,9 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   },
   setTickSound: (e) => { saveToStorage('nw_tick', e); set({ tickSoundEnabled: e }); },
   setVoiceEnabled: (e) => { saveToStorage('nw_voice', e); set({ voiceEnabled: e }); },
+  setVoiceCountdown: (e) => { saveToStorage('nw_voice_countdown', e); set({ voiceCountdownEnabled: e }); },
+  setVoiceTick: (e) => { saveToStorage('nw_voice_tick', e); set({ voiceTickEnabled: e }); },
+  setVoiceSpeed: (s) => { saveToStorage('nw_voice_speed', s); set({ voiceSpeed: s }); },
   setCurrentPage: (page) => set({ currentPage: page }),
   setTimezone: (tz) => { saveToStorage('nw_timezone', tz); set({ timezone: tz }); },
   setNotificationSettings: (partial) => {
